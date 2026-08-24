@@ -1,4 +1,4 @@
-# Pentaract Faster — Telegram Bot, Storage Channel & Railway.com Setup Guide
+Follow link (ctrl + click)# Pentaract Faster — Telegram Bot, Storage Channel & Railway.com Setup Guide
 
 Welcome to **Pentaract Faster**! This guide provides a complete, step-by-step walkthrough for configuring your Telegram Bots, private storage channels/supergroups, and deploying the complete application with **AES-256-GCM chunked encryption** onto **Railway.com**.
 
@@ -74,15 +74,26 @@ Each Telegram Bot acts as an active **Storage Worker** for dispatching and retri
 
 ---
 
-## 🚂 Step 4: Deploying Pentaract Faster on Railway.com
+## 🚂 Step 4: Deploying Pentaract Faster (Render.com / Railway.com)
 
-Railway is the recommended platform for hosting Pentaract with zero downtime and automatic SSL.
+### 4.1 Render.com Deployment Settings
 
-### 4.1 Prerequisites
-* A [GitHub](https://github.com) account with this repository pushed.
-* A free or paid [Railway.com](https://railway.com) account.
+When deploying on **Render.com** (Web Service):
 
-### 4.2 One-Click Deployment on Railway
+* **Runtime**: `Node` (or `Bun`)
+* **Build Command**: `npm install && npm run build` *(or `bun install && bun run build`)*
+* **Start Command**: `npm run start` *(or `bun run start`)*
+* **Environment Variables**:
+  * `NODE_ENV`: `production`
+  * `PORT`: `3000` (Render will map this automatically)
+  * `SECRET_KEY`: `your_random_secret_32_chars_long`
+  * `TELEGRAM_BOT_TOKEN`: `7192837465:AAHq_...` (optional, can also be registered in UI)
+
+> 💡 **Tip**: If your Render service didn't run the build command previously, our auto-builder in `package.json` will now automatically build the client bundle and `dist/server.cjs` if it detects it is missing.
+
+---
+
+### 4.2 Railway.com Deployment Guide
 
 1. Log into your [Railway Dashboard](https://railway.app/dashboard).
 2. Click **+ New Project** &rarr; **Deploy from GitHub repo**.
