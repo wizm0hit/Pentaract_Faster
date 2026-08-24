@@ -91,15 +91,49 @@ Railway is the recommended platform for hosting Pentaract with zero downtime and
 
 ### 4.3 Configure Environment Variables in Railway
 
-In your Railway project dashboard, click on your service, navigate to the **Variables** tab, and add the following:
+In your Railway project dashboard, click on your service, navigate to the **Variables** tab.
 
-| Variable | Recommended Value | Description |
+#### ✅ 1. Active Service Variables (The 5 Key Variables)
+
+| Variable | Recommended Value | Status | Description |
+| :--- | :--- | :--- | :--- |
+| `PORT` | `3000` | **Required** | Port for Express API & static web interface |
+| `NODE_ENV` | `production` | **Required** | Enables optimized production runtime |
+| `SECRET_KEY` | `32_character_random_string` | **Required** | Symmetric root key for JWT signing & AES-256-GCM derivation |
+| `CHUNK_SIZE_MB` | `5` | **Recommended** | Size of each encrypted slice (5 MB is optimal for speed & Telegram limits) |
+| `TELEGRAM_BOT_TOKEN` | `7192837465:AAHq_...` | **Recommended** | Primary Telegram Bot API Token from @BotFather |
+
+---
+
+#### ⚙️ 2. Optional Convenience Variables (Defaults are already baked-in)
+
+Railway may suggest these based on codebase analysis. You can either set custom values or leave them blank:
+
+| Variable | Default Value (if omitted) | Description |
 | :--- | :--- | :--- |
-| `PORT` | `3000` | Port for Express API & Vite static server |
-| `NODE_ENV` | `production` | Enables optimized production builds |
-| `SECRET_KEY` | `32_random_characters_secret_key` | Secret key used for JWT & AES-256 key derivation |
-| `TELEGRAM_BOT_TOKEN` | `7192837465:AAHq_...` | *(Optional)* Default worker bot token |
-| `CHUNK_SIZE_MB` | `5` | Size of each encrypted slice (default: 5 MB) |
+| `SUPERUSER_EMAIL` | `admin@pentaract.local` | Default administrator login email |
+| `SUPERUSER_PASS` | `admin123` | Default administrator login password |
+| `ACCESS_TOKEN_EXPIRE_IN_SECS` | `2592000` *(30 days)* | Expiration time for authentication JWT tokens in seconds |
+| `REFRESH_TOKEN_EXPIRE_IN_DAYS`| `60` | Refresh token duration in days |
+| `CHANNEL_CAPACITY` | `1000` | Vault storage capacity indicator (in GB) |
+| `WORKERS` | `2` | Number of concurrent bot workers configured |
+| `VITE_API_BASE` | `/api` | Base path for frontend API calls |
+| `GEMINI_API_KEY` | *(empty)* | Optional API key for AI file tagging & smart search |
+
+---
+
+#### ℹ️ 3. Legacy / Not Required Variables (Safe to leave blank or delete in Railway)
+
+If Railway lists the following in **Suggested Variables**, click the **✕** or leave them empty:
+
+* `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_PORT`:
+  * **Why suggested**: Originates from old Pentaract templates that used external PostgreSQL.
+  * **Why not needed**: Pentaract Faster runs fully self-contained with zero external database dependencies.
+* `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_API_BASE_URL`:
+  * **Why suggested**: Originates from old Telegram MTProto client apps (user accounts).
+  * **Why not needed**: Pentaract Faster uses the modern, official **Telegram Bot API** (`TELEGRAM_BOT_TOKEN`), which is significantly faster, safer, and does not risk user account limits.
+
+---
 
 ### 4.4 Expose Public URL (Networking)
 

@@ -106,7 +106,7 @@ const Register = () => {
 						name="email"
 						label="Email Address"
 						type="email"
-						placeholder="user@pentaract.local"
+						placeholder="you@example.com"
 						variant="outlined"
 						fullWidth
 						required

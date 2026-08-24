@@ -30,12 +30,17 @@ const SetupGuideDialog = (props) => {
 		setTimeout(() => setCopiedKey(''), 2000)
 	}
 
-	const railwayEnvTemplate = `# Railway Environment Variables
+	const railwayEnvTemplate = `# Pentaract Faster - Required & Recommended Railway Variables
 PORT=3000
 NODE_ENV=production
 SECRET_KEY=generate_a_random_32_character_secret_here
-TELEGRAM_API_ID=your_tg_api_id_optional
-TELEGRAM_API_HASH=your_tg_api_hash_optional
+CHUNK_SIZE_MB=5
+TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
+
+# Optional (Defaults are already baked-in)
+# SUPERUSER_EMAIL=admin@pentaract.local
+# SUPERUSER_PASS=admin123
+# ACCESS_TOKEN_EXPIRE_IN_SECS=2592000
 `
 
 	return (

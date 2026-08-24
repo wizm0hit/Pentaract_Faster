@@ -171,7 +171,10 @@ const StorageWorkerCreateForm = () => {
 							placeholder="e.g. 7192837465:AAHq_..."
 							variant="outlined"
 							value={tokenValue()}
-							onChange={(e) => setTokenValue(e.target.value)}
+							onChange={(e, val) => {
+								const text = typeof val === 'string' ? val : (e?.target?.value ?? e?.currentTarget?.value ?? '')
+								setTokenValue(text)
+							}}
 							fullWidth
 							required
 							InputLabelProps={{ sx: { color: '#94a3b8' } }}

@@ -106,7 +106,7 @@ const Login = () => {
 						name="email"
 						label="Email Address"
 						type="email"
-						placeholder="admin@pentaract.local"
+						placeholder="you@example.com"
 						variant="outlined"
 						fullWidth
 						required

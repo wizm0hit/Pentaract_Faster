@@ -44,9 +44,10 @@ const StorageCreateForm = () => {
 		}
 	}
 
-	const validateChatId = (event) => {
-		const value = parseInt(event.currentTarget.value)
-		if (value > 0) {
+	const validateChatId = (event, value) => {
+		const raw = typeof value === 'string' ? value : (event?.target?.value ?? event?.currentTarget?.value ?? '')
+		const num = parseInt(raw)
+		if (raw && !isNaN(num) && num > 0) {
 			setChatIdErr('Telegram Channel Chat IDs are negative numbers (e.g. -100192837465)')
 		} else {
 			setChatIdErr(null)

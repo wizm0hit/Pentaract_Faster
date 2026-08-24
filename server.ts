@@ -10,6 +10,14 @@ import crypto from 'crypto'
 const app = express()
 const PORT = 3000
 const SECRET_KEY = process.env.SECRET_KEY || 'pentaract-super-secret-key-2026'
+const SUPERUSER_EMAIL = process.env.SUPERUSER_EMAIL || 'admin@pentaract.local'
+const SUPERUSER_PASS = process.env.SUPERUSER_PASS || 'admin123'
+const ACCESS_TOKEN_EXPIRE_SECS = process.env.ACCESS_TOKEN_EXPIRE_IN_SECS
+	? parseInt(process.env.ACCESS_TOKEN_EXPIRE_IN_SECS)
+	: 30 * 24 * 3600
+const CHUNK_SIZE_BYTES = process.env.CHUNK_SIZE_MB
+	? parseInt(process.env.CHUNK_SIZE_MB) * 1024 * 1024
+	: 5 * 1024 * 1024 // 5MB default chunks
 
 app.use(express.json({ limit: '500mb' }))
 app.use(express.urlencoded({ extended: true, limit: '500mb' }))
@@ -23,7 +31,7 @@ const upload = multer({
 // Open-Source High-Speed Cryptographic Chunking Engine (AES-256-GCM)
 // -------------------------------------------------------------
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm'
-const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024 // 5MB chunks (optimal for speed & Telegram 20MB bot limit)
+const DEFAULT_CHUNK_SIZE = CHUNK_SIZE_BYTES
 const MASTER_SALT = 'pentaract_vault_salt_v2'
 
 interface EncryptedChunk {
@@ -58,6 +66,46 @@ function deriveStorageKey(storageId: string): Buffer {
 }
 
 /**
+ * Uploads an encrypted chunk to Telegram via the Bot API sendDocument endpoint
+ */
+async function uploadChunkToTelegram(
+	botToken: string,
+	chatId: number | string,
+	chunk: EncryptedChunk,
+	fileName: string
+): Promise<number | null> {
+	try {
+		if (!botToken || botToken.includes('DEMO_WORKER')) {
+			return null
+		}
+
+		const formData = new FormData()
+		formData.append('chat_id', String(chatId))
+		const chunkBlob = new Blob([chunk.cipherBuffer], { type: 'application/octet-stream' })
+		const chunkName = `${fileName}.part_${chunk.index}.enc`
+		formData.append('document', chunkBlob, chunkName)
+		formData.append('caption', `🔒 AES-256-GCM | Chunk ${chunk.index + 1}/${chunk.totalChunks}\nSHA-256: ${chunk.sha256.substring(0, 16)}...`)
+
+		const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+			method: 'POST',
+			body: formData,
+		})
+
+		const data = (await res.json()) as any
+		if (data.ok && data.result?.message_id) {
+			console.log(`[Telegram Bot] Successfully posted chunk ${chunk.index} (msg_id: ${data.result.message_id}) to chat ${chatId}`)
+			return data.result.message_id
+		} else {
+			console.warn(`[Telegram Bot API Notice] ${data.description || 'Could not post document'}`)
+			return null
+		}
+	} catch (e: any) {
+		console.warn(`[Telegram Bot Dispatch Error] ${e.message}`)
+		return null
+	}
+}
+
+/**
  * Splits large file buffer into chunks, encrypts each chunk using AES-256-GCM,
  * and attaches cryptographic IV, Auth Tag, and SHA-256 checksums.
  */
@@ -65,7 +113,7 @@ function encryptAndChunkFile(
 	buffer: Buffer,
 	storageId: string,
 	chunkSize: number = DEFAULT_CHUNK_SIZE,
-	workerPool: string[] = ['Default Worker']
+	workerPool: StorageWorker[] = []
 ): { chunks: EncryptedChunk[]; algorithm: string; chunksCount: number; chunkSize: number } {
 	const key = deriveStorageKey(storageId)
 	const totalChunks = Math.ceil(buffer.length / chunkSize) || 1
@@ -86,7 +134,8 @@ function encryptAndChunkFile(
 		// Calculate SHA-256 checksum of raw chunk for verification
 		const sha256 = crypto.createHash('sha256').update(rawChunk).digest('hex')
 
-		const assignedWorker = workerPool[i % workerPool.length] || 'Cluster Worker Alpha'
+		const assignedWorkerObj = workerPool.length ? workerPool[i % workerPool.length] : null
+		const assignedWorker = assignedWorkerObj ? assignedWorkerObj.name : 'Cluster Worker Alpha'
 		const simulatedTgMsgId = 100000 + Math.floor(Math.random() * 900000)
 
 		chunks.push({
@@ -141,8 +190,22 @@ function decryptAndAssembleFile(chunks: EncryptedChunk[], storageId: string): Bu
 }
 
 // -------------------------------------------------------------
-// In-Memory Database Models
+// Disk Persistence Layer (Preserves data across restarts & users)
 // -------------------------------------------------------------
+import fs from 'fs'
+import path from 'path'
+
+const DATA_DIR = path.join(process.cwd(), 'data')
+const CHUNKS_DIR = path.join(DATA_DIR, 'chunks')
+const DB_FILE = path.join(DATA_DIR, 'pentaract_db.json')
+
+if (!fs.existsSync(DATA_DIR)) {
+	fs.mkdirSync(DATA_DIR, { recursive: true })
+}
+if (!fs.existsSync(CHUNKS_DIR)) {
+	fs.mkdirSync(CHUNKS_DIR, { recursive: true })
+}
+
 interface User {
 	id: string
 	email: string
@@ -181,124 +244,218 @@ const accessRules = new Map<string, Map<string, AccessRule>>()
 const storageFiles = new Map<string, Map<string, StoredFile>>()
 const storageFolders = new Map<string, Set<string>>()
 
-// Initialize Demo Seed Data
-const defaultUserId = '00000000-0000-0000-0000-000000000001'
-const defaultUser: User = {
-	id: defaultUserId,
-	email: 'admin@pentaract.local',
-	passwordHash: 'admin123',
-}
-users.set(defaultUser.email, defaultUser)
-
-const defaultStorageId = '00000000-0000-0000-0000-000000000002'
-const defaultStorage: StorageItem = {
-	id: defaultStorageId,
-	name: 'Main Cloud Vault',
-	chat_id: -100192837465,
-	ownerId: defaultUserId,
-	createdAt: new Date().toISOString(),
-}
-storages.set(defaultStorageId, defaultStorage)
-
-const defaultWorker1: StorageWorker = {
-	id: '00000000-0000-0000-0000-000000000003',
-	name: 'Cluster Worker Alpha (Bot 1)',
-	token: '7192837465:AAHq_DEMO_WORKER_BOT_TOKEN_1',
-	storage_id: defaultStorageId,
-	ownerId: defaultUserId,
-	status: 'active',
-	lastPing: new Date().toISOString(),
-}
-const defaultWorker2: StorageWorker = {
-	id: '00000000-0000-0000-0000-000000000004',
-	name: 'Cluster Worker Beta (Bot 2)',
-	token: '7298374615:BBHq_DEMO_WORKER_BOT_TOKEN_2',
-	storage_id: defaultStorageId,
-	ownerId: defaultUserId,
-	status: 'active',
-	lastPing: new Date().toISOString(),
-}
-storageWorkers.set(defaultWorker1.id, defaultWorker1)
-storageWorkers.set(defaultWorker2.id, defaultWorker2)
-
 const initStorageMaps = (sId: string) => {
 	if (!storageFiles.has(sId)) storageFiles.set(sId, new Map())
 	if (!storageFolders.has(sId)) storageFolders.set(sId, new Set())
 	if (!accessRules.has(sId)) accessRules.set(sId, new Map())
 }
-initStorageMaps(defaultStorageId)
 
-const demoFolderSet = storageFolders.get(defaultStorageId)!
-demoFolderSet.add('documents')
-demoFolderSet.add('media')
+function saveChunkToDisk(storageId: string, chunkSha: string, buffer: Buffer) {
+	try {
+		const sDir = path.join(CHUNKS_DIR, storageId)
+		if (!fs.existsSync(sDir)) fs.mkdirSync(sDir, { recursive: true })
+		fs.writeFileSync(path.join(sDir, `${chunkSha}.bin`), buffer)
+	} catch (e: any) {
+		console.warn(`[Persistence Warning] Could not save chunk to disk: ${e.message}`)
+	}
+}
 
-// Seed sample files encrypted with AES-256-GCM
-const workerNames = [defaultWorker1.name, defaultWorker2.name]
-const demoFileMap = storageFiles.get(defaultStorageId)!
+function loadChunkFromDisk(storageId: string, chunkSha: string): Buffer | null {
+	try {
+		const chunkPath = path.join(CHUNKS_DIR, storageId, `${chunkSha}.bin`)
+		if (fs.existsSync(chunkPath)) {
+			return fs.readFileSync(chunkPath)
+		}
+	} catch (e: any) {
+		console.warn(`[Persistence Warning] Could not load chunk from disk: ${e.message}`)
+	}
+	return null
+}
 
-const sampleWelcomeBuffer = Buffer.from(
-	`# Pentaract Faster - Distributed Cloud Vault\n\n` +
-	`### Open-Source Security Architecture:\n` +
-	`- **Encryption**: AES-256-GCM (NIST Authenticated Encryption with 256-bit keys)\n` +
-	`- **Integrity Check**: SHA-256 hash checksums per individual chunk\n` +
-	`- **Chunking Engine**: Fast parallel slicing with 12-byte cryptographically random IVs & 16-byte GCM tags\n` +
-	`- **Telegram Backbone**: High-speed storage worker cluster dispersion\n\n` +
-	`All files uploaded to this storage vault are automatically split into encrypted chunks and distributed across registered Telegram workers.`
-)
-const encryptedWelcome = encryptAndChunkFile(sampleWelcomeBuffer, defaultStorageId, 256 * 1024, workerNames)
-demoFileMap.set('documents/welcome.md', {
-	path: 'documents/welcome.md',
-	name: 'welcome.md',
-	is_file: true,
-	size: sampleWelcomeBuffer.length,
-	mimeType: 'text/markdown',
-	createdAt: new Date().toISOString(),
-	encryptionAlgorithm: encryptedWelcome.algorithm,
-	chunksCount: encryptedWelcome.chunksCount,
-	chunkSize: encryptedWelcome.chunkSize,
-	chunks: encryptedWelcome.chunks,
-})
+function saveDatabaseToDisk() {
+	try {
+		const data = {
+			users: Array.from(users.entries()),
+			storages: Array.from(storages.entries()),
+			storageWorkers: Array.from(storageWorkers.entries()),
+			accessRules: Array.from(accessRules.entries()).map(([sId, ruleMap]) => [sId, Array.from(ruleMap.entries())]),
+			storageFolders: Array.from(storageFolders.entries()).map(([sId, folderSet]) => [sId, Array.from(folderSet)]),
+			storageFiles: Array.from(storageFiles.entries()).map(([sId, fileMap]) => [
+				sId,
+				Array.from(fileMap.entries()).map(([filePath, file]) => {
+					return [
+						filePath,
+						{
+							...file,
+							chunks: file.chunks.map((c) => ({
+								index: c.index,
+								totalChunks: c.totalChunks,
+								rawSize: c.rawSize,
+								encryptedSize: c.encryptedSize,
+								iv: c.iv,
+								authTag: c.authTag,
+								sha256: c.sha256,
+								workerName: c.workerName,
+								telegramMessageId: c.telegramMessageId,
+							})),
+						},
+					]
+				}),
+			]),
+		}
 
-const sampleConfigBuffer = Buffer.from(
-	JSON.stringify(
-		{
-			system: 'Pentaract Faster',
-			version: '2.4.0',
-			encryption: {
-				cipher: 'AES-256-GCM',
-				mode: 'authenticated-stream',
-				iv_bytes: 12,
-				auth_tag_bytes: 16,
-				hashing: 'SHA-256',
-			},
-			workers_connected: 2,
-			channel_id: -100192837465,
-		},
-		null,
-		2
-	)
-)
-const encryptedConfig = encryptAndChunkFile(sampleConfigBuffer, defaultStorageId, 256 * 1024, workerNames)
-demoFileMap.set('config.json', {
-	path: 'config.json',
-	name: 'config.json',
-	is_file: true,
-	size: sampleConfigBuffer.length,
-	mimeType: 'application/json',
-	createdAt: new Date().toISOString(),
-	encryptionAlgorithm: encryptedConfig.algorithm,
-	chunksCount: encryptedConfig.chunksCount,
-	chunkSize: encryptedConfig.chunkSize,
-	chunks: encryptedConfig.chunks,
-})
+		fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8')
+	} catch (err: any) {
+		console.error('[Database Persistence Error]', err.message)
+	}
+}
+
+function loadDatabaseFromDisk() {
+	try {
+		if (!fs.existsSync(DB_FILE)) {
+			// No saved database yet, create superuser account
+			const defaultUserId = '00000000-0000-0000-0000-000000000001'
+			const defaultUser: User = {
+				id: defaultUserId,
+				email: SUPERUSER_EMAIL,
+				passwordHash: SUPERUSER_PASS,
+			}
+			users.set(defaultUser.email, defaultUser)
+
+			// If user set TELEGRAM_BOT_TOKEN in env, register as first worker
+			if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN.includes('DEMO_WORKER')) {
+				const botWorker: StorageWorker = {
+					id: '00000000-0000-0000-0000-000000000003',
+					name: 'Primary Telegram Worker',
+					token: process.env.TELEGRAM_BOT_TOKEN.trim(),
+					storage_id: null,
+					ownerId: defaultUserId,
+					status: 'active',
+					lastPing: new Date().toISOString(),
+				}
+				storageWorkers.set(botWorker.id, botWorker)
+			}
+
+			saveDatabaseToDisk()
+			return
+		}
+
+		const raw = fs.readFileSync(DB_FILE, 'utf-8')
+		const data = JSON.parse(raw)
+
+		// Restore users
+		users.clear()
+		if (Array.isArray(data.users)) {
+			for (const [email, user] of data.users) {
+				users.set(email, user)
+			}
+		}
+
+		// Ensure superuser exists
+		if (!users.has(SUPERUSER_EMAIL)) {
+			users.set(SUPERUSER_EMAIL, {
+				id: '00000000-0000-0000-0000-000000000001',
+				email: SUPERUSER_EMAIL,
+				passwordHash: SUPERUSER_PASS,
+			})
+		}
+
+		// Restore storages
+		storages.clear()
+		if (Array.isArray(data.storages)) {
+			for (const [id, storage] of data.storages) {
+				storages.set(id, storage)
+				initStorageMaps(id)
+			}
+		}
+
+		// Restore workers
+		storageWorkers.clear()
+		if (Array.isArray(data.storageWorkers)) {
+			for (const [id, worker] of data.storageWorkers) {
+				storageWorkers.set(id, worker)
+			}
+		}
+		// If TELEGRAM_BOT_TOKEN is present in env and not in DB, add it
+		if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN.includes('DEMO_WORKER')) {
+			const hasToken = Array.from(storageWorkers.values()).some((w) => w.token === process.env.TELEGRAM_BOT_TOKEN)
+			if (!hasToken) {
+				const botWorker: StorageWorker = {
+					id: uuidv4(),
+					name: 'Primary Telegram Worker',
+					token: process.env.TELEGRAM_BOT_TOKEN.trim(),
+					storage_id: null,
+					ownerId: '00000000-0000-0000-0000-000000000001',
+					status: 'active',
+					lastPing: new Date().toISOString(),
+				}
+				storageWorkers.set(botWorker.id, botWorker)
+			}
+		}
+
+		// Restore access rules
+		accessRules.clear()
+		if (Array.isArray(data.accessRules)) {
+			for (const [sId, rules] of data.accessRules) {
+				const ruleMap = new Map<string, AccessRule>()
+				for (const [uId, rule] of rules) {
+					ruleMap.set(uId, rule)
+				}
+				accessRules.set(sId, ruleMap)
+			}
+		}
+
+		// Restore folders
+		storageFolders.clear()
+		if (Array.isArray(data.storageFolders)) {
+			for (const [sId, folders] of data.storageFolders) {
+				storageFolders.set(sId, new Set(folders))
+			}
+		}
+
+		// Restore files
+		storageFiles.clear()
+		if (Array.isArray(data.storageFiles)) {
+			for (const [sId, filesList] of data.storageFiles) {
+				const fileMap = new Map<string, StoredFile>()
+				for (const [filePath, file] of filesList) {
+					const restoredChunks: EncryptedChunk[] = file.chunks.map((c: any) => {
+						const diskBuf = loadChunkFromDisk(sId, c.sha256)
+						return {
+							...c,
+							cipherBuffer: diskBuf || Buffer.alloc(c.encryptedSize),
+						}
+					})
+
+					fileMap.set(filePath, {
+						...file,
+						chunks: restoredChunks,
+					})
+				}
+				storageFiles.set(sId, fileMap)
+			}
+		}
+
+		console.log(`[Database Loaded] ${storages.size} vault(s), ${storageWorkers.size} worker(s), ${users.size} user(s) active`)
+	} catch (err: any) {
+		console.error('[Database Load Error]', err.message)
+	}
+}
+
+// Load database immediately on server startup
+loadDatabaseFromDisk()
 
 // Helper Auth Middleware
 const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+	const fallbackUser = users.get(SUPERUSER_EMAIL) || Array.from(users.values())[0] || {
+		id: '00000000-0000-0000-0000-000000000001',
+		email: SUPERUSER_EMAIL,
+		passwordHash: SUPERUSER_PASS,
+	}
+
 	const authHeader = req.headers['authorization']
 	if (!authHeader) {
-		// Provide automatic demo user fallback for seamless navigation
-		let foundUser = users.get('admin@pentaract.local') || defaultUser
-		;(req as any).user = { id: foundUser.id, email: foundUser.email }
+		;(req as any).user = { id: fallbackUser.id, email: fallbackUser.email }
 		return next()
 	}
 
@@ -308,8 +465,7 @@ const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
 		;(req as any).user = decoded
 		next()
 	} catch {
-		let foundUser = users.get('admin@pentaract.local') || defaultUser
-		;(req as any).user = { id: foundUser.id, email: foundUser.email }
+		;(req as any).user = { id: fallbackUser.id, email: fallbackUser.email }
 		next()
 	}
 }
@@ -346,6 +502,7 @@ app.post('/api/users', (req, res) => {
 		passwordHash: password,
 	}
 	users.set(email, newUser)
+	saveDatabaseToDisk()
 	res.status(200).json({ message: 'User registered successfully' })
 })
 
@@ -364,10 +521,11 @@ app.post('/api/auth/login', (req, res) => {
 			passwordHash: password || 'admin123',
 		}
 		users.set(email, user)
+		saveDatabaseToDisk()
 	}
 
 	const token = jwt.sign({ id: user.id, email: user.email }, SECRET_KEY, {
-		expiresIn: '30d',
+		expiresIn: ACCESS_TOKEN_EXPIRE_SECS,
 	})
 
 	res.json({ access_token: token })
@@ -424,11 +582,12 @@ app.post('/api/storages', authenticateToken, (req, res) => {
 		id: storageId,
 		name: name.trim(),
 		chat_id: Number(chat_id) || -100100000000,
-		ownerId: user?.id || defaultUserId,
+		ownerId: user?.id || '00000000-0000-0000-0000-000000000001',
 		createdAt: new Date().toISOString(),
 	}
 	storages.set(storageId, newStorage)
 	initStorageMaps(storageId)
+	saveDatabaseToDisk()
 
 	res.status(201).json(newStorage)
 })
@@ -448,6 +607,7 @@ app.delete('/api/storages/:id', authenticateToken, (req, res) => {
 	storageFiles.delete(req.params.id)
 	storageFolders.delete(req.params.id)
 	accessRules.delete(req.params.id)
+	saveDatabaseToDisk()
 	res.status(204).send()
 })
 
@@ -488,6 +648,7 @@ app.post('/api/storages/:id/access', authenticateToken, (req, res) => {
 		email: user_email,
 		access_type: access_type || 'R',
 	})
+	saveDatabaseToDisk()
 
 	res.status(204).send()
 })
@@ -500,6 +661,7 @@ app.delete('/api/storages/:id/access', authenticateToken, (req, res) => {
 	const rules = accessRules.get(sId)
 	if (rules && user_id) {
 		rules.delete(user_id)
+		saveDatabaseToDisk()
 	}
 	res.status(204).send()
 })
@@ -524,17 +686,19 @@ app.post('/api/storage_workers', authenticateToken, (req, res) => {
 		name: name.trim(),
 		token: token.trim(),
 		storage_id: storage_id || null,
-		ownerId: user?.id || defaultUserId,
+		ownerId: user?.id || '00000000-0000-0000-0000-000000000001',
 		status: 'active',
 		lastPing: new Date().toISOString(),
 	}
 	storageWorkers.set(newWorker.id, newWorker)
+	saveDatabaseToDisk()
 	res.status(201).json(newWorker)
 })
 
 // Storage Workers: Delete
 app.delete('/api/storage_workers/:id', authenticateToken, (req, res) => {
 	storageWorkers.delete(req.params.id)
+	saveDatabaseToDisk()
 	res.status(204).send()
 })
 
@@ -605,6 +769,7 @@ app.post('/api/storages/:storage_id/files/create_folder', authenticateToken, (re
 
 	const folders = storageFolders.get(sId)!
 	folders.add(fullFolderPath)
+	saveDatabaseToDisk()
 
 	res.status(201).json({ message: 'Folder created successfully', path: fullFolderPath })
 })
@@ -623,13 +788,33 @@ app.post('/api/storages/:storage_id/files/upload', authenticateToken, upload.sin
 	const fullPath = basePath ? `${basePath}/${filename}` : filename
 
 	// Collect active workers for this storage
-	const activeWorkerList = Array.from(storageWorkers.values())
+	const activeWorkers = Array.from(storageWorkers.values())
 		.filter((w) => !w.storage_id || w.storage_id === sId)
-		.map((w) => w.name)
-	const workers = activeWorkerList.length ? activeWorkerList : ['Cluster Worker Alpha']
-
+	
 	// High-speed chunking and AES-256-GCM authenticated encryption
-	const encryptedResult = encryptAndChunkFile(req.file.buffer, sId, DEFAULT_CHUNK_SIZE, workers)
+	const encryptedResult = encryptAndChunkFile(req.file.buffer, sId, DEFAULT_CHUNK_SIZE, activeWorkers)
+
+	// Save all chunk binary buffers to disk
+	encryptedResult.chunks.forEach((chunk) => {
+		saveChunkToDisk(sId, chunk.sha256, chunk.cipherBuffer)
+	})
+
+	// Asynchronously upload encrypted slices to real Telegram channel if workers and storage exist
+	const storageObj = storages.get(sId)
+	if (storageObj && storageObj.chat_id) {
+		const targetWorkers = activeWorkers.length ? activeWorkers : Array.from(storageWorkers.values())
+		encryptedResult.chunks.forEach((chunk, idx) => {
+			const worker = targetWorkers[idx % targetWorkers.length]
+			if (worker && worker.token && !worker.token.includes('DEMO_WORKER')) {
+				uploadChunkToTelegram(worker.token, storageObj.chat_id, chunk, filename).then((tgMsgId) => {
+					if (tgMsgId) {
+						chunk.telegramMessageId = tgMsgId
+						saveDatabaseToDisk()
+					}
+				})
+			}
+		})
+	}
 
 	const filesMap = storageFiles.get(sId)!
 	filesMap.set(fullPath, {
@@ -644,6 +829,7 @@ app.post('/api/storages/:storage_id/files/upload', authenticateToken, upload.sin
 		chunkSize: encryptedResult.chunkSize,
 		chunks: encryptedResult.chunks,
 	})
+	saveDatabaseToDisk()
 
 	res.status(201).json({
 		message: 'File encrypted with AES-256-GCM and chunked successfully',
@@ -669,12 +855,30 @@ app.post('/api/storages/:storage_id/files/upload_to', authenticateToken, upload.
 
 	const filename = targetPath.split('/').pop() || req.file.originalname
 
-	const activeWorkerList = Array.from(storageWorkers.values())
+	const activeWorkers = Array.from(storageWorkers.values())
 		.filter((w) => !w.storage_id || w.storage_id === sId)
-		.map((w) => w.name)
-	const workers = activeWorkerList.length ? activeWorkerList : ['Cluster Worker Alpha']
 
-	const encryptedResult = encryptAndChunkFile(req.file.buffer, sId, DEFAULT_CHUNK_SIZE, workers)
+	const encryptedResult = encryptAndChunkFile(req.file.buffer, sId, DEFAULT_CHUNK_SIZE, activeWorkers)
+
+	encryptedResult.chunks.forEach((chunk) => {
+		saveChunkToDisk(sId, chunk.sha256, chunk.cipherBuffer)
+	})
+
+	const storageObj = storages.get(sId)
+	if (storageObj && storageObj.chat_id) {
+		const targetWorkers = activeWorkers.length ? activeWorkers : Array.from(storageWorkers.values())
+		encryptedResult.chunks.forEach((chunk, idx) => {
+			const worker = targetWorkers[idx % targetWorkers.length]
+			if (worker && worker.token && !worker.token.includes('DEMO_WORKER')) {
+				uploadChunkToTelegram(worker.token, storageObj.chat_id, chunk, filename).then((tgMsgId) => {
+					if (tgMsgId) {
+						chunk.telegramMessageId = tgMsgId
+						saveDatabaseToDisk()
+					}
+				})
+			}
+		})
+	}
 
 	const filesMap = storageFiles.get(sId)!
 	filesMap.set(targetPath, {
@@ -689,6 +893,7 @@ app.post('/api/storages/:storage_id/files/upload_to', authenticateToken, upload.
 		chunkSize: encryptedResult.chunkSize,
 		chunks: encryptedResult.chunks,
 	})
+	saveDatabaseToDisk()
 
 	res.status(201).json({
 		message: 'File encrypted with AES-256-GCM and chunked successfully',
@@ -909,6 +1114,7 @@ app.delete('/api/storages/:storage_id/files/:path(*)', authenticateToken, (req, 
 		}
 	}
 
+	saveDatabaseToDisk()
 	res.status(200).json({ message: 'Deleted successfully' })
 })
 

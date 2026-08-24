@@ -143,7 +143,7 @@ const Header = () => {
 							}}
 						>
 							<Typography variant="caption" sx={{ color: '#cbd5e1', fontWeight: 500 }}>
-								admin@pentaract.local
+								{store.user?.email || 'Authenticated User'}
 							</Typography>
 						</Box>
 

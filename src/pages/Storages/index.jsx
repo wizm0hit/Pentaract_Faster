@@ -26,17 +26,24 @@ import API from '../../api'
 import { convertSize } from '../../common/size_converter'
 import { alertStore } from '../../components/AlertStack'
 import ActionConfirmDialog from '../../components/ActionConfirmDialog'
+import OnboardingVaultDialog from '../../components/OnboardingVaultDialog'
 
 const Storages = () => {
 	const { addAlert } = alertStore
 	const [storages, setStorages] = createSignal([])
 	const [selectedStorageToDelete, setSelectedStorageToDelete] = createSignal(null)
+	const [onboardingOpen, setOnboardingOpen] = createSignal(false)
 	const navigate = useNavigate()
 
 	const fetchStorages = async () => {
 		try {
 			const res = await API.storages.listStorages()
-			setStorages(res.storages || [])
+			const list = res.storages || []
+			setStorages(list)
+			// Automatically prompt onboarding popup if 0 storage vaults exist
+			if (list.length === 0) {
+				setOnboardingOpen(true)
+			}
 		} catch (err) {
 			console.error(err)
 		}
@@ -329,6 +336,12 @@ const Storages = () => {
 				isOpened={Boolean(selectedStorageToDelete())}
 				onConfirm={confirmDeleteStorage}
 				onCancel={() => setSelectedStorageToDelete(null)}
+			/>
+
+			<OnboardingVaultDialog
+				open={onboardingOpen()}
+				onClose={() => setOnboardingOpen(false)}
+				onCreated={() => fetchStorages()}
 			/>
 		</Box>
 	)

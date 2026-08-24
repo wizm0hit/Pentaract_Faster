@@ -1,0 +1,207 @@
+{
+  "users": [],
+  "storages": [
+    [
+      "873dfbdf-5797-497c-affd-049ce9727923",
+      {
+        "id": "873dfbdf-5797-497c-affd-049ce9727923",
+        "name": "Cloud Vault",
+        "chat_id": -1004269773052,
+        "ownerId": "00000000-0000-0000-0000-000000000001",
+        "createdAt": "2026-08-24T15:30:38.377Z"
+      }
+    ]
+  ],
+  "storageWorkers": [
+    [
+      "173cf29e-85bd-460c-a205-bb392d954f05",
+      {
+        "id": "173cf29e-85bd-460c-a205-bb392d954f05",
+        "name": "Primary Telegram Worker",
+        "token": "8920391276:AAGLai9noHtZYP67FnOpLMtkWRXr3hKy3zI",
+        "storage_id": null,
+        "ownerId": "00000000-0000-0000-0000-000000000001",
+        "status": "active",
+        "lastPing": "2026-08-24T15:30:38.370Z"
+      }
+    ]
+  ],
+  "accessRules": [
+    [
+      "873dfbdf-5797-497c-affd-049ce9727923",
+      []
+    ]
+  ],
+  "storageFolders": [
+    [
+      "873dfbdf-5797-497c-affd-049ce9727923",
+      []
+    ]
+  ],
+  "storageFiles": [
+    [
+      "873dfbdf-5797-497c-affd-049ce9727923",
+      [
+        [
+          "penguin.mp4",
+          {
+            "path": "penguin.mp4",
+            "name": "penguin.mp4",
+            "is_file": true,
+            "size": 63996093,
+            "mimeType": "video/mp4",
+            "createdAt": "2026-08-24T15:32:47.819Z",
+            "encryptionAlgorithm": "AES-256-GCM (NIST SP 800-38D Authenticated Encryption)",
+            "chunksCount": 13,
+            "chunkSize": 5242880,
+            "chunks": [
+              {
+                "index": 0,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "7840fdd5dac518cecfb1b224",
+                "authTag": "75c4dc1e2fd62ec711940a8e11e4a4ed",
+                "sha256": "6b2641eba1a83ddac72ff490064c44e20d60cef103ccd20a0f931747e7d9f4b0",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 16
+              },
+              {
+                "index": 1,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "b1f42402e2cb58b9ed3cdc4e",
+                "authTag": "0e3757a991bca1882178fc72d6e5332b",
+                "sha256": "354afd047da8ad0feb9b0b243a37f415edcb84498802a2f625263d8b6e765b17",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 10
+              },
+              {
+                "index": 2,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "73185aa1b0d9cdbd97f9733d",
+                "authTag": "c3aad1c92f397da8483dec0cfe8a5cae",
+                "sha256": "9675e27629e18deb59e9d6bf1c69c332fad9ac6921a9c710838b44382991e2bd",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 15
+              },
+              {
+                "index": 3,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "06ca91745f54532208a9035f",
+                "authTag": "d8e2a1358032cb268eeb22b6bfa7a008",
+                "sha256": "a285e905dc3d47dd4d98d5b89a4a2c898b24be91afaa09e37832d4a0e33680c9",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 8
+              },
+              {
+                "index": 4,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "259a4400ceff8c16890674a6",
+                "authTag": "3b93d915ccc3dbf74f7e1784f4132ddc",
+                "sha256": "0448999cc0b2d7ec9ea6b2d2ef5ea0203b0269a6a4e28f5cf063235eae626663",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 11
+              },
+              {
+                "index": 5,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "7dbc64ac99d83533afa5fd36",
+                "authTag": "6ce722c330d15c8678b827e959ef0c64",
+                "sha256": "29acc373cb77a25b8c2942292e2ce87cff84cde1857adf3ad39c5e278b4a72bc",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 9
+              },
+              {
+                "index": 6,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "68665d3636f8d97f89ca0c69",
+                "authTag": "8f521773d946757be029ba159a37e1de",
+                "sha256": "eba81fed763b3281b26f32243d70f9072b88e673596016cc5529789692ed2905",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 12
+              },
+              {
+                "index": 7,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "5f7b532d9cf97b46881bf96a",
+                "authTag": "92f0e8ee73fc60b4d6fc9b16e1c7ee10",
+                "sha256": "900a374a20616c0d33373758c5b32cf8d5936ca7915bbc9928c7dbd5e8fca282",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 6
+              },
+              {
+                "index": 8,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "206d2bf9a5024e98183f6b4b",
+                "authTag": "06cf478800c3e5fa4c62cf82b5c77da5",
+                "sha256": "e1f4b19c66cc9805174bc634aaba111121950b183209bf48de835577ff28b88f",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 13
+              },
+              {
+                "index": 9,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "e54ebb0710fe46ba6d1991f4",
+                "authTag": "113cd2605d67e7d9b55dda67c02e13d0",
+                "sha256": "8cd16d670c91dddce19a0bdb672ebe6e7896389bc544bb95a479a32b5d21786c",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 7
+              },
+              {
+                "index": 10,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "af3ac7a8099f5a5ee79dab01",
+                "authTag": "43dc11739234366dfe1f3cc5f71d4c4c",
+                "sha256": "6a84c01cef87253ee398618e8b6ebb7ad1a960d83c30b5aa529f79fd76b84b61",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 17
+              },
+              {
+                "index": 11,
+                "totalChunks": 13,
+                "rawSize": 5242880,
+                "encryptedSize": 5242880,
+                "iv": "4b6db0fecd3c2d2be4f91a32",
+                "authTag": "861414456110a238f8a88338eac9d719",
+                "sha256": "7bf14f12eff74f07f6c7706e779689b1077c2fe4f6ea78a9e628747a0df017a4",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 14
+              },
+              {
+                "index": 12,
+                "totalChunks": 13,
+                "rawSize": 1081533,
+                "encryptedSize": 1081533,
+                "iv": "f86c7408dd60888f453e8942",
+                "authTag": "27d2f4ef4db084a75556e517a742a8ce",
+                "sha256": "1110ece14eb9a57e4018b1b7ad1ca7ae9d484b7af00d0d4e90b3f9c869cd2b14",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 5
+              }
+            ]
+          }
+        ]
+      ]
+    ]
+  ]
+}
