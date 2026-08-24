@@ -1,0 +1,6 @@
+{
+  "name": "Pentaract Faster",
+  "description": "A distributed cloud file storage system with storage workers and Telegram-backed chunking architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

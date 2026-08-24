@@ -1,0 +1,59 @@
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	padding: 0;
+	font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Oxygen',
+		'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+		sans-serif;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	background: #080e1a;
+	color: #f8fafc;
+	min-height: 100vh;
+}
+
+a:not(.default-link) {
+	text-decoration: none;
+	color: inherit;
+	transition: all 0.2s ease;
+}
+
+a:not(.default-link):hover {
+	opacity: 0.9;
+}
+
+/* Smooth scrollbar */
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: #080e1a;
+}
+
+::-webkit-scrollbar-thumb {
+	background: #1e293b;
+	border-radius: 4px;
+	border: 2px solid #080e1a;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #334155;
+}
+
+/* Animations */
+.MuiPaper-root {
+	transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.MuiButton-root {
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.MuiButton-root:active {
+	transform: scale(0.98);
+}
