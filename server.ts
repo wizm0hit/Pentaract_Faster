@@ -194,28 +194,60 @@ function decryptAndAssembleFile(chunks: EncryptedChunk[], storageId: string): Bu
 // -------------------------------------------------------------
 import fs from 'fs'
 import path from 'path'
+import os from 'os'
 import pg from 'pg'
 
 const { Pool } = pg
 
-// Support Render persistent disk mounts (e.g. /var/data or custom DATA_DIR)
-const DATA_DIR = process.env.DATA_DIR || process.env.PERSISTENT_STORAGE_PATH || (fs.existsSync('/var/data') ? '/var/data' : path.join(process.cwd(), 'data'))
+// Resolve a writable directory for storage and cached chunks
+function resolveDataDir(): string {
+	const customDir = process.env.DATA_DIR || process.env.PERSISTENT_STORAGE_PATH
+	if (customDir) {
+		try {
+			fs.mkdirSync(customDir, { recursive: true })
+			fs.accessSync(customDir, fs.constants.W_OK)
+			return customDir
+		} catch (e: any) {
+			console.warn(`[Storage Warning] Configured DATA_DIR (${customDir}) is not writable (${e.message}). Falling back.`)
+		}
+	}
+
+	// Check if mounted persistent disk /var/data exists and is writable
+	try {
+		if (fs.existsSync('/var/data')) {
+			fs.accessSync('/var/data', fs.constants.W_OK)
+			return '/var/data'
+		}
+	} catch {}
+
+	// Local data directory in current working directory
+	const localDir = path.join(process.cwd(), 'data')
+	try {
+		fs.mkdirSync(localDir, { recursive: true })
+		fs.accessSync(localDir, fs.constants.W_OK)
+		return localDir
+	} catch {}
+
+	// Fallback to system temp directory
+	const tmpDir = path.join(os.tmpdir(), 'pentaract_data')
+	try {
+		fs.mkdirSync(tmpDir, { recursive: true })
+		return tmpDir
+	} catch {
+		return process.cwd()
+	}
+}
+
+const DATA_DIR = resolveDataDir()
 const CHUNKS_DIR = path.join(DATA_DIR, 'chunks')
 const DB_FILE = path.join(DATA_DIR, 'pentaract_db.json')
 
-if (!fs.existsSync(DATA_DIR)) {
-	try {
-		fs.mkdirSync(DATA_DIR, { recursive: true })
-	} catch (e: any) {
-		console.warn(`[Storage Warning] Could not create DATA_DIR ${DATA_DIR}: ${e.message}`)
-	}
-}
-if (!fs.existsSync(CHUNKS_DIR)) {
-	try {
+try {
+	if (!fs.existsSync(CHUNKS_DIR)) {
 		fs.mkdirSync(CHUNKS_DIR, { recursive: true })
-	} catch (e: any) {
-		console.warn(`[Storage Warning] Could not create CHUNKS_DIR ${CHUNKS_DIR}: ${e.message}`)
 	}
+} catch (e: any) {
+	console.warn(`[Storage Warning] Could not initialize CHUNKS_DIR: ${e.message}`)
 }
 
 // PostgreSQL Persistent Database Pool (for Render, Supabase, Neon, AWS RDS, etc.)
@@ -485,26 +517,35 @@ function applyStateJson(data: any) {
 }
 
 function saveDatabaseToDisk() {
-	try {
-		const data = exportStateJson()
-		const jsonString = JSON.stringify(data, null, 2)
-		fs.writeFileSync(DB_FILE, jsonString, 'utf-8')
+	const data = exportStateJson()
+	const jsonString = JSON.stringify(data, null, 2)
 
-		// If PostgreSQL is attached, persist to PostgreSQL asynchronously
-		if (pgPool) {
-			pgPool
-				.query(
-					`INSERT INTO pentaract_state (id, data, updated_at)
-					 VALUES ('main', $1::jsonb, CURRENT_TIMESTAMP)
-					 ON CONFLICT (id) DO UPDATE SET data = $1::jsonb, updated_at = CURRENT_TIMESTAMP`,
-					[jsonString]
-				)
-				.catch((err) => {
-					console.error('[PostgreSQL Sync Error]', err.message)
-				})
-		}
+	// 1. Try local disk backup
+	try {
+		const dir = path.dirname(DB_FILE)
+		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+		fs.writeFileSync(DB_FILE, jsonString, 'utf-8')
 	} catch (err: any) {
-		console.error('[Database Persistence Error]', err.message)
+		if (!pgPool) {
+			console.warn('[Database Disk Write Warning]', err.message)
+		}
+	}
+
+	// 2. Persist to PostgreSQL (Primary cloud persistence on Render)
+	if (pgPool) {
+		pgPool
+			.query(
+				`INSERT INTO pentaract_state (id, data, updated_at)
+				 VALUES ('main', $1::jsonb, CURRENT_TIMESTAMP)
+				 ON CONFLICT (id) DO UPDATE SET data = $1::jsonb, updated_at = CURRENT_TIMESTAMP`,
+				[jsonString]
+			)
+			.then(() => {
+				// PostgreSQL synced successfully
+			})
+			.catch((err) => {
+				console.error('[PostgreSQL Sync Error]', err.message)
+			})
 	}
 }
 
