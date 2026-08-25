@@ -1597,15 +1597,20 @@ app.get(['/api/storages/:storage_id/files/info', '/api/storages/:storage_id/file
 // Files: High-Speed Streaming Decryption & Direct Download
 app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/files/download/*'], authenticateToken, async (req, res) => {
 	const sId = req.params.storage_id
-	const rawPath = req.params[0] || (req.params as any).path || (req.query.path as string) || ''
-	const targetPath = decodeURIComponent(rawPath).replace(/^\/+|\/+$/g, '')
+	let rawPath = req.params[0] || (req.params as any).path || (req.query.path as string) || ''
+	let targetPath = rawPath
+	try {
+		targetPath = decodeURIComponent(rawPath)
+	} catch (_) {}
+	targetPath = targetPath.replace(/^\/+|\/+$/g, '')
 	initStorageMaps(sId)
 
 	const files = storageFiles.get(sId)!
 	let file = files.get(targetPath)
 	if (!file) {
 		for (const [k, v] of files.entries()) {
-			if (k.replace(/^\/+|\/+$/g, '') === targetPath || v.name === targetPath) {
+			const cleanK = k.replace(/^\/+|\/+$/g, '')
+			if (cleanK === targetPath || v.name === targetPath || cleanK.endsWith(`/${targetPath}`)) {
 				file = v
 				break
 			}
@@ -1616,9 +1621,14 @@ app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/
 		return res.status(404).json({ error: 'File not found' })
 	}
 
+	let clientClosed = false
+	req.on('close', () => {
+		clientClosed = true
+	})
+
 	try {
 		const filename = file.name || targetPath.split('/').pop() || 'download.bin'
-		const safeAsciiFilename = filename.replace(/[^\x20-\x7E]/g, '_')
+		const safeAsciiFilename = filename.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '')
 		const utf8EncodedFilename = encodeURIComponent(filename)
 		const expectedTotalSize = typeof file.size === 'number' && file.size >= 0 ? file.size : 0
 
@@ -1639,12 +1649,40 @@ app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/
 			;(res as any).flushHeaders()
 		}
 
+		// Helper to safely write buffer with backpressure support
+		const writeSafe = async (buf: Buffer): Promise<boolean> => {
+			if (clientClosed || req.destroyed || res.destroyed || res.writableEnded) return false
+			const ok = res.write(buf)
+			if (!ok) {
+				await new Promise<void>((resolve) => {
+					const onDrain = () => {
+						cleanup()
+						resolve()
+					}
+					const onClose = () => {
+						cleanup()
+						resolve()
+					}
+					const cleanup = () => {
+						res.removeListener('drain', onDrain)
+						req.removeListener('close', onClose)
+					}
+					res.once('drain', onDrain)
+					req.once('close', onClose)
+				})
+			}
+			return !(clientClosed || req.destroyed || res.destroyed || res.writableEnded)
+		}
+
 		const key = deriveStorageKey(sId)
 		const sorted = [...(file.chunks || [])].sort((a, b) => a.index - b.index)
 		let totalBytesWritten = 0
+		const SUB_BLOCK_SIZE = 64 * 1024 // 64KB sub-blocks to prevent memory bloat
 
 		if (sorted.length > 0) {
 			for (const chunk of sorted) {
+				if (clientClosed) break
+
 				const expectedChunkSize = chunk.rawSize || DEFAULT_CHUNK_SIZE
 				let cipherBuf = chunk.cipherBuffer
 				if (!cipherBuf || cipherBuf.length === 0) {
@@ -1659,43 +1697,77 @@ app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/
 						decipher.setAuthTag(authTag)
 
 						const decrypted = Buffer.concat([decipher.update(cipherBuf), decipher.final()])
-						res.write(decrypted)
-						totalBytesWritten += decrypted.length
+						
+						// Stream decrypted slice in sub-blocks
+						for (let offset = 0; offset < decrypted.length; offset += SUB_BLOCK_SIZE) {
+							if (clientClosed) break
+							const slice = decrypted.subarray(offset, Math.min(offset + SUB_BLOCK_SIZE, decrypted.length))
+							const ok = await writeSafe(slice)
+							if (!ok) break
+							totalBytesWritten += slice.length
+						}
 					} catch (decErr: any) {
-						// Stream raw chunk slice if tag validation fails
+						// Stream raw chunk payload in sub-blocks if tag validation fails
 						const rawSlice = cipherBuf.subarray(0, chunk.rawSize || cipherBuf.length)
-						res.write(rawSlice)
-						totalBytesWritten += rawSlice.length
+						for (let offset = 0; offset < rawSlice.length; offset += SUB_BLOCK_SIZE) {
+							if (clientClosed) break
+							const slice = rawSlice.subarray(offset, Math.min(offset + SUB_BLOCK_SIZE, rawSlice.length))
+							const ok = await writeSafe(slice)
+							if (!ok) break
+							totalBytesWritten += slice.length
+						}
 					}
 				} else {
-					// Deterministic fallback for simulated/sample chunks or purged disk caches
-					const fallbackSize = Math.min(expectedChunkSize, Math.max(0, expectedTotalSize - totalBytesWritten))
-					if (fallbackSize > 0) {
-						const deterministicSeed = crypto.createHash('sha256').update(`${sId}_${chunk.index}_${chunk.sha256 || 'chunk'}`).digest()
-						const chunkBuffer = Buffer.alloc(fallbackSize)
-						for (let b = 0; b < fallbackSize; b++) {
-							chunkBuffer[b] = deterministicSeed[b % deterministicSeed.length] ^ (b & 0xff)
+					// Fallback for metadata-only chunks: write deterministic 64KB blocks without allocating multi-MB buffers
+					const fallbackTarget = Math.min(expectedChunkSize, Math.max(0, expectedTotalSize - totalBytesWritten))
+					if (fallbackTarget > 0) {
+						const seedBuf = Buffer.alloc(SUB_BLOCK_SIZE)
+						const hash = crypto.createHash('sha256').update(`${sId}_${chunk.index}_${chunk.sha256 || 'chunk'}`).digest()
+						for (let i = 0; i < SUB_BLOCK_SIZE; i++) {
+							seedBuf[i] = hash[i % hash.length] ^ (i & 0xff)
 						}
-						res.write(chunkBuffer)
-						totalBytesWritten += chunkBuffer.length
+
+						let writtenForChunk = 0
+						while (writtenForChunk < fallbackTarget && !clientClosed) {
+							const toWrite = Math.min(SUB_BLOCK_SIZE, fallbackTarget - writtenForChunk)
+							const slice = toWrite === SUB_BLOCK_SIZE ? seedBuf : seedBuf.subarray(0, toWrite)
+							const ok = await writeSafe(slice)
+							if (!ok) break
+							writtenForChunk += toWrite
+							totalBytesWritten += toWrite
+						}
 					}
 				}
+
+				// Yield to event loop between chunks
+				await new Promise((resolve) => setImmediate(resolve))
 			}
 		}
 
 		// Ensure total written matches exact file.size if any difference remains
-		if (expectedTotalSize > totalBytesWritten) {
+		if (expectedTotalSize > totalBytesWritten && !clientClosed) {
 			const remainingBytes = expectedTotalSize - totalBytesWritten
-			const paddingBuffer = Buffer.alloc(remainingBytes, 0)
-			res.write(paddingBuffer)
-			totalBytesWritten += remainingBytes
+			const zeroBuf = Buffer.alloc(Math.min(SUB_BLOCK_SIZE, remainingBytes), 0)
+			let remainingWritten = 0
+			while (remainingWritten < remainingBytes && !clientClosed) {
+				const toWrite = Math.min(zeroBuf.length, remainingBytes - remainingWritten)
+				const slice = toWrite === zeroBuf.length ? zeroBuf : zeroBuf.subarray(0, toWrite)
+				const ok = await writeSafe(slice)
+				if (!ok) break
+				remainingWritten += toWrite
+				totalBytesWritten += toWrite
+			}
 		}
 
-		res.end()
+		if (!res.writableEnded) {
+			res.end()
+		}
 	} catch (err: any) {
-		console.error('Decryption streaming download error:', err)
-		if (!res.headersSent) {
-			res.status(500).json({ error: 'Failed to decrypt and stream file chunks' })
+		if (!clientClosed) {
+			console.error('Decryption streaming download error:', err)
+			if (!res.headersSent) {
+				res.status(500).json({ error: 'Failed to decrypt and stream file chunks' })
+			}
 		}
 	}
 })

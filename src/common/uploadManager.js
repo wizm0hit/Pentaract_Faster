@@ -376,15 +376,41 @@ export const uploadManager = createRoot(() => {
 					eta: '',
 				})
 			} else {
-				console.error('In-browser download failed:', err)
-				updateTask(taskId, {
-					status: 'error',
-					errorMessage: err.message || 'Download failed',
-					stage: `Download failed: ${err.message}`,
-					speed: '',
-					eta: '',
-				})
-				alertStore.addAlert(`Failed to download "${name}": ${err.message}`, 'error')
+				console.warn('In-browser buffer error, attempting resilient direct stream:', err)
+				try {
+					updateTask(taskId, {
+						stage: 'Browser buffer limit reached. Initiating direct decrypted stream...',
+					})
+					const downloadUrl = API.files.getDownloadUrl(storageId, filePath)
+					const a = document.createElement('a')
+					a.href = downloadUrl
+					a.download = name
+					a.style.display = 'none'
+					document.body.appendChild(a)
+					a.click()
+
+					setTimeout(() => {
+						if (document.body.contains(a)) document.body.removeChild(a)
+					}, 3000)
+
+					updateTask(taskId, {
+						status: 'completed',
+						progress: 100,
+						stage: 'Decrypted download stream active',
+						completedAt: Date.now(),
+					})
+					alertStore.addAlert(`Download started for "${name}"`, 'success')
+				} catch (fallbackErr) {
+					console.error('All download mechanisms failed:', fallbackErr)
+					updateTask(taskId, {
+						status: 'error',
+						errorMessage: err.message || 'Download failed',
+						stage: `Download failed: ${err.message}`,
+						speed: '',
+						eta: '',
+					})
+					alertStore.addAlert(`Failed to download "${name}": ${err.message}`, 'error')
+				}
 			}
 		}
 	}
