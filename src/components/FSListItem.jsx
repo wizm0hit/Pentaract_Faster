@@ -22,6 +22,7 @@ import { useNavigate, useParams } from '@solidjs/router'
 import API from '../api'
 import ActionConfirmDialog from './ActionConfirmDialog'
 import FileInfoDialog from './FileInfo'
+import { alertStore } from './AlertStack'
 import { convertSize } from '../common/size_converter'
 
 /**
@@ -111,12 +112,18 @@ const FSListItem = (props) => {
 
 	const deleteFile = async () => {
 		closeActionConfirmDialog()
-		let path = props.fsElement.path
-		if (!props.fsElement.is_file && !path.endsWith('/')) {
-			path = path + '/'
+		try {
+			let path = props.fsElement.path
+			if (!props.fsElement.is_file && !path.endsWith('/')) {
+				path = path + '/'
+			}
+			await API.files.deleteFile(activeStorageId(), path)
+			alertStore.addAlert(`Deleted "${props.fsElement.name}"`, 'success')
+			props.onDelete()
+		} catch (err) {
+			console.error('Delete error:', err)
+			alertStore.addAlert(err.message || 'Failed to delete', 'error')
 		}
-		await API.files.deleteFile(activeStorageId(), path)
-		props.onDelete()
 	}
 
 	return (

@@ -312,7 +312,7 @@ function saveDatabaseToDisk() {
 						filePath,
 						{
 							...file,
-							chunks: file.chunks.map((c) => ({
+							chunks: (file.chunks || []).map((c) => ({
 								index: c.index,
 								totalChunks: c.totalChunks,
 								rawSize: c.rawSize,
@@ -1011,7 +1011,11 @@ app.post('/api/storages/:storage_id/files/upload', authenticateToken, upload.sin
 				uploadChunkToTelegram(worker.token, storageObj.chat_id, chunk, filename).then((tgMsgId) => {
 					if (tgMsgId) {
 						chunk.telegramMessageId = tgMsgId
-						saveDatabaseToDisk()
+						// Only persist if the file still exists in this storage
+						const currentFiles = storageFiles.get(sId)
+						if (currentFiles && currentFiles.has(fullPath)) {
+							saveDatabaseToDisk()
+						}
 					}
 				})
 			}
@@ -1075,7 +1079,11 @@ app.post('/api/storages/:storage_id/files/upload_to', authenticateToken, upload.
 				uploadChunkToTelegram(worker.token, storageObj.chat_id, chunk, filename).then((tgMsgId) => {
 					if (tgMsgId) {
 						chunk.telegramMessageId = tgMsgId
-						saveDatabaseToDisk()
+						// Only persist if the file still exists in this storage
+						const currentFiles = storageFiles.get(sId)
+						if (currentFiles && currentFiles.has(targetPath)) {
+							saveDatabaseToDisk()
+						}
 					}
 				})
 			}
@@ -1106,11 +1114,9 @@ app.post('/api/storages/:storage_id/files/upload_to', authenticateToken, upload.
 })
 
 // Files: Tree / Directory listing
-app.get('/api/storages/:storage_id/files/tree', authenticateToken, (req, res) => {
-	handleTreeListing(req.params.storage_id, '', res)
-})
-app.get('/api/storages/:storage_id/files/tree/:path(*)', authenticateToken, (req, res) => {
-	handleTreeListing(req.params.storage_id, req.params.path || '', res)
+app.get(['/api/storages/:storage_id/files/tree', '/api/storages/:storage_id/files/tree/*'], authenticateToken, (req, res) => {
+	const rawPath = req.params[0] || (req.params as any).path || (req.query.path as string) || ''
+	handleTreeListing(req.params.storage_id, rawPath, res)
 })
 
 function handleTreeListing(sId: string, queryPath: string, res: Response) {
@@ -1131,10 +1137,11 @@ function handleTreeListing(sId: string, queryPath: string, res: Response) {
 
 	// Find subfolders
 	for (const folder of folders) {
+		const cleanFolder = folder.replace(/^\/+|\/+$/g, '')
 		if (cleanQuery === '') {
-			const parts = folder.split('/')
+			const parts = cleanFolder.split('/')
 			const firstDir = parts[0]
-			if (!seenDirs.has(firstDir)) {
+			if (firstDir && !seenDirs.has(firstDir)) {
 				seenDirs.add(firstDir)
 				results.push({
 					path: firstDir,
@@ -1143,11 +1150,11 @@ function handleTreeListing(sId: string, queryPath: string, res: Response) {
 					size: 0,
 				})
 			}
-		} else if (folder.startsWith(cleanQuery + '/')) {
-			const sub = folder.substring(cleanQuery.length + 1)
+		} else if (cleanFolder.startsWith(cleanQuery + '/')) {
+			const sub = cleanFolder.substring(cleanQuery.length + 1)
 			const nextDir = sub.split('/')[0]
 			const fullSubPath = `${cleanQuery}/${nextDir}`
-			if (!seenDirs.has(nextDir)) {
+			if (nextDir && !seenDirs.has(nextDir)) {
 				seenDirs.add(nextDir)
 				results.push({
 					path: fullSubPath,
@@ -1161,8 +1168,9 @@ function handleTreeListing(sId: string, queryPath: string, res: Response) {
 
 	// Find files
 	for (const [filePath, file] of files.entries()) {
+		const cleanFilePath = filePath.replace(/^\/+|\/+$/g, '')
 		if (cleanQuery === '') {
-			const parts = filePath.split('/')
+			const parts = cleanFilePath.split('/')
 			if (parts.length === 1) {
 				results.push({
 					path: file.path,
@@ -1174,7 +1182,7 @@ function handleTreeListing(sId: string, queryPath: string, res: Response) {
 				})
 			} else {
 				const firstDir = parts[0]
-				if (!seenDirs.has(firstDir)) {
+				if (firstDir && !seenDirs.has(firstDir)) {
 					seenDirs.add(firstDir)
 					results.push({
 						path: firstDir,
@@ -1184,8 +1192,8 @@ function handleTreeListing(sId: string, queryPath: string, res: Response) {
 					})
 				}
 			}
-		} else if (filePath.startsWith(cleanQuery + '/')) {
-			const sub = filePath.substring(cleanQuery.length + 1)
+		} else if (cleanFilePath.startsWith(cleanQuery + '/')) {
+			const sub = cleanFilePath.substring(cleanQuery.length + 1)
 			const parts = sub.split('/')
 			if (parts.length === 1) {
 				results.push({
@@ -1199,7 +1207,7 @@ function handleTreeListing(sId: string, queryPath: string, res: Response) {
 			} else {
 				const nextDir = parts[0]
 				const fullSubPath = `${cleanQuery}/${nextDir}`
-				if (!seenDirs.has(nextDir)) {
+				if (nextDir && !seenDirs.has(nextDir)) {
 					seenDirs.add(nextDir)
 					results.push({
 						path: fullSubPath,
@@ -1216,25 +1224,34 @@ function handleTreeListing(sId: string, queryPath: string, res: Response) {
 }
 
 // Files: Detailed Info & Encrypted Chunks Inspector
-app.get('/api/storages/:storage_id/files/info/:path(*)', authenticateToken, (req, res) => {
+app.get(['/api/storages/:storage_id/files/info', '/api/storages/:storage_id/files/info/*'], authenticateToken, (req, res) => {
 	const sId = req.params.storage_id
-	const targetPath = decodeURIComponent(req.params.path || '').replace(/^\/+|\/+$/g, '')
+	const rawPath = req.params[0] || (req.params as any).path || (req.query.path as string) || ''
+	const targetPath = decodeURIComponent(rawPath).replace(/^\/+|\/+$/g, '')
 	initStorageMaps(sId)
 
 	const files = storageFiles.get(sId)!
-	const file = files.get(targetPath)
+	let file = files.get(targetPath)
+	if (!file) {
+		for (const [k, v] of files.entries()) {
+			if (k.replace(/^\/+|\/+$/g, '') === targetPath) {
+				file = v
+				break
+			}
+		}
+	}
 
 	if (!file) {
 		return res.status(404).json({ error: 'File not found' })
 	}
 
-	const chunkSummaries = file.chunks.map((c) => ({
+	const chunkSummaries = (file.chunks || []).map((c) => ({
 		index: c.index,
 		total_chunks: c.totalChunks,
 		raw_size: c.rawSize,
 		encrypted_size: c.encryptedSize,
-		iv_sample: c.iv.substring(0, 8) + '...' + c.iv.substring(c.iv.length - 8),
-		auth_tag_sample: c.authTag.substring(0, 8) + '...' + c.authTag.substring(c.authTag.length - 8),
+		iv_sample: c.iv ? c.iv.substring(0, 8) + '...' + c.iv.substring(c.iv.length - 8) : '',
+		auth_tag_sample: c.authTag ? c.authTag.substring(0, 8) + '...' + c.authTag.substring(c.authTag.length - 8) : '',
 		sha256_hash: c.sha256,
 		worker_name: c.workerName || 'Worker Alpha',
 		telegram_message_id: c.telegramMessageId || 100450 + c.index,
@@ -1263,13 +1280,22 @@ app.get('/api/storages/:storage_id/files/info/:path(*)', authenticateToken, (req
 })
 
 // Files: High-Speed Decryption & Download
-app.get('/api/storages/:storage_id/files/download/:path(*)', authenticateToken, (req, res) => {
+app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/files/download/*'], authenticateToken, (req, res) => {
 	const sId = req.params.storage_id
-	const targetPath = decodeURIComponent(req.params.path || '').replace(/^\/+|\/+$/g, '')
+	const rawPath = req.params[0] || (req.params as any).path || (req.query.path as string) || ''
+	const targetPath = decodeURIComponent(rawPath).replace(/^\/+|\/+$/g, '')
 	initStorageMaps(sId)
 
 	const files = storageFiles.get(sId)!
-	const file = files.get(targetPath)
+	let file = files.get(targetPath)
+	if (!file) {
+		for (const [k, v] of files.entries()) {
+			if (k.replace(/^\/+|\/+$/g, '') === targetPath) {
+				file = v
+				break
+			}
+		}
+	}
 
 	if (!file) {
 		return res.status(404).json({ error: 'File not found' })
@@ -1292,32 +1318,64 @@ app.get('/api/storages/:storage_id/files/download/:path(*)', authenticateToken, 
 	}
 })
 
-// Files: Delete
-app.delete('/api/storages/:storage_id/files/:path(*)', authenticateToken, (req, res) => {
-	const sId = req.params.storage_id
-	const targetPath = decodeURIComponent(req.params.path || '').replace(/^\/+|\/+$/g, '')
+// Helper to delete file/folder and clean disk chunks
+function executeFileDeletion(sId: string, targetPath: string): { deletedCount: number } {
 	initStorageMaps(sId)
-
 	const files = storageFiles.get(sId)!
 	const folders = storageFolders.get(sId)!
+	let deletedCount = 0
 
+	// Check direct match
 	files.delete(targetPath)
 	folders.delete(targetPath)
 
-	for (const fPath of Array.from(files.keys())) {
-		if (fPath === targetPath || fPath.startsWith(targetPath + '/')) {
+	// Clean up files in this path or subpaths
+	for (const [fPath, fileObj] of Array.from(files.entries())) {
+		const cleanFPath = fPath.replace(/^\/+|\/+$/g, '')
+		if (cleanFPath === targetPath || cleanFPath.startsWith(targetPath + '/')) {
+			if (fileObj && fileObj.chunks) {
+				fileObj.chunks.forEach((c) => {
+					try {
+						const cPath = path.join(CHUNKS_DIR, sId, `${c.sha256}.bin`)
+						if (fs.existsSync(cPath)) fs.unlinkSync(cPath)
+					} catch {}
+				})
+			}
 			files.delete(fPath)
+			deletedCount++
 		}
 	}
 
+	// Clean up folders
 	for (const folder of Array.from(folders)) {
-		if (folder === targetPath || folder.startsWith(targetPath + '/')) {
+		const cleanFolder = folder.replace(/^\/+|\/+$/g, '')
+		if (cleanFolder === targetPath || cleanFolder.startsWith(targetPath + '/')) {
 			folders.delete(folder)
+			deletedCount++
 		}
 	}
 
 	saveDatabaseToDisk()
-	res.status(200).json({ message: 'Deleted successfully' })
+	return { deletedCount }
+}
+
+// Files: Delete (DELETE method matching any subpath or root file)
+app.delete(['/api/storages/:storage_id/files', '/api/storages/:storage_id/files/*'], authenticateToken, (req, res) => {
+	const sId = req.params.storage_id
+	const rawPath = req.params[0] || (req.params as any).path || (req.query.path as string) || (req.body && req.body.path) || ''
+	const targetPath = decodeURIComponent(rawPath).replace(/^\/+|\/+$/g, '')
+
+	const { deletedCount } = executeFileDeletion(sId, targetPath)
+	res.status(200).json({ message: 'Deleted successfully', deletedCount, path: targetPath })
+})
+
+// Files: Delete (POST fallback endpoint for firewall / client compatibility)
+app.post('/api/storages/:storage_id/files/delete', authenticateToken, (req, res) => {
+	const sId = req.params.storage_id
+	const targetPath = decodeURIComponent(req.body.path || req.query.path || '').replace(/^\/+|\/+$/g, '')
+
+	const { deletedCount } = executeFileDeletion(sId, targetPath)
+	res.status(200).json({ message: 'Deleted successfully', deletedCount, path: targetPath })
 })
 
 // -------------------------------------------------------------
