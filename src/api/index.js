@@ -1,5 +1,5 @@
 import createLocalStore from '../../libs'
-import apiRequest, { apiMultipartRequest, apiDownloadRequest } from './request'
+import apiRequest, { apiMultipartRequest, apiDownloadRequest, API_BASE } from './request'
 import { alertStore } from '../components/AlertStack'
 
 /////////////////////////////////////////////////////////////

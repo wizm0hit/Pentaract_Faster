@@ -44,6 +44,7 @@ function formatEta(seconds) {
 /**
  * @typedef {Object} UploadTask
  * @property {string} id
+ * @property {'upload' | 'download'} [type]
  * @property {string} storageId
  * @property {string} fileName
  * @property {number} fileSize
@@ -52,7 +53,7 @@ function formatEta(seconds) {
  * @property {number} currentChunk
  * @property {number} totalChunks
  * @property {string} stage
- * @property {'uploading' | 'completed' | 'error' | 'cancelled'} status
+ * @property {'uploading' | 'downloading' | 'completed' | 'error' | 'cancelled'} status
  * @property {string} [errorMessage]
  * @property {string[]} workerNames
  * @property {number[]} telegramMessageIds
@@ -68,7 +69,8 @@ export const uploadManager = createRoot(() => {
 	const [isMinimized, setIsMinimized] = createSignal(false)
 	const [isDockOpen, setIsDockOpen] = createSignal(false)
 
-	const activeCount = () => tasks().filter((t) => t.status === 'uploading').length
+	const activeCount = () =>
+		tasks().filter((t) => t.status === 'uploading' || t.status === 'downloading').length
 
 	const updateTask = (id, updater) => {
 		setTasks((prev) =>
@@ -261,6 +263,64 @@ export const uploadManager = createRoot(() => {
 		}
 	}
 
+	const startDownload = async (storageId, filePath, fileName, fileSize = 0) => {
+		const taskId = 'dl_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now()
+		const name = fileName || filePath.split('/').pop() || 'download.bin'
+
+		const initialTask = {
+			id: taskId,
+			type: 'download',
+			storageId,
+			fileName: name,
+			fileSize: fileSize || 0,
+			targetPath: filePath || '',
+			progress: 10,
+			currentChunk: 1,
+			totalChunks: 1,
+			stage: 'Requesting streaming AES-256-GCM decryption pipeline...',
+			status: 'downloading',
+			workerNames: ['Active Cluster'],
+			telegramMessageIds: [],
+			startedAt: Date.now(),
+			speed: '',
+			eta: '',
+		}
+
+		setTasks((prev) => [initialTask, ...prev])
+		setIsDockOpen(true)
+		setIsMinimized(false)
+
+		try {
+			const downloadUrl = API.files.getDownloadUrl(storageId, filePath)
+			const a = document.createElement('a')
+			a.href = downloadUrl
+			a.download = name
+			a.style.display = 'none'
+			document.body.appendChild(a)
+			a.click()
+
+			updateTask(taskId, {
+				progress: 100,
+				stage: 'Decrypted stream delivered to browser download manager',
+				status: 'completed',
+				completedAt: Date.now(),
+			})
+
+			alertStore.addAlert(`AES-256 decryption stream started for "${name}"`, 'success')
+
+			setTimeout(() => {
+				if (document.body.contains(a)) document.body.removeChild(a)
+			}, 2000)
+		} catch (err) {
+			updateTask(taskId, {
+				status: 'error',
+				errorMessage: err.message || 'Download request failed',
+				stage: `Download failed: ${err.message}`,
+			})
+			alertStore.addAlert(`Failed to download "${name}": ${err.message}`, 'error')
+		}
+	}
+
 	const cancelUpload = (taskId) => {
 		const task = tasks().find((t) => t.id === taskId)
 		if (task && task.abortController) {
@@ -274,7 +334,7 @@ export const uploadManager = createRoot(() => {
 	}
 
 	const clearCompleted = () => {
-		setTasks((prev) => prev.filter((t) => t.status === 'uploading'))
+		setTasks((prev) => prev.filter((t) => t.status === 'uploading' || t.status === 'downloading'))
 	}
 
 	return {
@@ -285,6 +345,7 @@ export const uploadManager = createRoot(() => {
 		isDockOpen,
 		setIsDockOpen,
 		startUpload,
+		startDownload,
 		cancelUpload,
 		dismissTask,
 		clearCompleted,

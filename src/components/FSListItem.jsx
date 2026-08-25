@@ -24,6 +24,7 @@ import ActionConfirmDialog from './ActionConfirmDialog'
 import FileInfoDialog from './FileInfo'
 import { alertStore } from './AlertStack'
 import { convertSize } from '../common/size_converter'
+import uploadManager from '../common/uploadManager'
 
 /**
  * @typedef {Object} FSListItemProps
@@ -70,26 +71,20 @@ const FSListItem = (props) => {
 				props.onDownloadStart(props.fsElement.name)
 			}
 
-			const directDownloadUrl = API.files.getDownloadUrl(activeStorageId(), filePath)
-
-			// Create hidden download trigger for native browser streaming download
-			const a = document.createElement('a')
-			a.href = directDownloadUrl
-			a.download = props.fsElement.name
-			a.style.display = 'none'
-			document.body.appendChild(a)
-			a.click()
-
-			alertStore.addAlert(`AES-256 decryption stream started for "${props.fsElement.name}"`, 'success')
+			await uploadManager.startDownload(
+				activeStorageId(),
+				filePath,
+				props.fsElement.name,
+				props.fsElement.size || 0
+			)
 
 			if (props.onDownloadProgress) {
 				props.onDownloadProgress(100)
 			}
 
-			setTimeout(() => {
-				if (document.body.contains(a)) document.body.removeChild(a)
-				if (props.onDownloadEnd) props.onDownloadEnd()
-			}, 1200)
+			if (props.onDownloadEnd) {
+				props.onDownloadEnd()
+			}
 		} catch (err) {
 			console.error('Download error:', err)
 			alertStore.addAlert(`Failed to download "${props.fsElement.name}": ${err.message}`, 'error')

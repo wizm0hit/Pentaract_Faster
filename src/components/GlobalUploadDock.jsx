@@ -7,6 +7,7 @@ import IconButton from '@suid/material/IconButton'
 import Button from '@suid/material/Button'
 import Chip from '@suid/material/Chip'
 import CloudUploadIcon from '@suid/icons-material/CloudUpload'
+import DownloadIcon from '@suid/icons-material/Download'
 import CheckCircleIcon from '@suid/icons-material/CheckCircle'
 import ErrorIcon from '@suid/icons-material/Error'
 import CloseIcon from '@suid/icons-material/Close'
@@ -15,6 +16,7 @@ import OpenInFullIcon from '@suid/icons-material/OpenInFull'
 import TelegramIcon from '@suid/icons-material/Send'
 import LockIcon from '@suid/icons-material/Lock'
 import DeleteSweepIcon from '@suid/icons-material/DeleteSweep'
+import SyncAltIcon from '@suid/icons-material/SyncAlt'
 import uploadManager from '../common/uploadManager'
 import { convertSize } from '../common/size_converter'
 
@@ -32,10 +34,10 @@ const GlobalUploadDock = () => {
 	} = uploadManager
 
 	const hasTasks = createMemo(() => tasks().length > 0)
-	const isUploading = createMemo(() => activeCount() > 0)
+	const isTransferring = createMemo(() => activeCount() > 0)
 
 	const overallProgress = createMemo(() => {
-		const active = tasks().filter((t) => t.status === 'uploading')
+		const active = tasks().filter((t) => t.status === 'uploading' || t.status === 'downloading')
 		if (!active.length) return 100
 		const sum = active.reduce((acc, t) => acc + t.progress, 0)
 		return Math.round(sum / active.length)
@@ -80,15 +82,15 @@ const GlobalUploadDock = () => {
 							width: 28,
 							height: 28,
 							borderRadius: '50%',
-							bgcolor: isUploading() ? 'rgba(99, 102, 241, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-							color: isUploading() ? '#818cf8' : '#34d399',
+							bgcolor: isTransferring() ? 'rgba(99, 102, 241, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+							color: isTransferring() ? '#818cf8' : '#34d399',
 						}}
 					>
 						<Show
-							when={isUploading()}
+							when={isTransferring()}
 							fallback={<CheckCircleIcon sx={{ fontSize: 18 }} />}
 						>
-							<CloudUploadIcon sx={{ fontSize: 18 }} />
+							<SyncAltIcon sx={{ fontSize: 18 }} />
 						</Show>
 					</Box>
 
@@ -97,17 +99,17 @@ const GlobalUploadDock = () => {
 							variant="body2"
 							sx={{ fontWeight: 600, color: '#f8fafc', fontSize: '0.85rem' }}
 						>
-							{isUploading()
-								? `Uploading ${activeCount()} file${activeCount() > 1 ? 's' : ''}...`
-								: 'All uploads complete'}
+							{isTransferring()
+								? `Transferring ${activeCount()} file${activeCount() > 1 ? 's' : ''}...`
+								: 'All transfers complete'}
 						</Typography>
 						<Typography
 							variant="caption"
 							sx={{ color: '#94a3b8', fontSize: '0.75rem' }}
 						>
-							{isUploading()
-								? `${overallProgress()}% • Direct Telegram Stream`
-								: `${tasks().length} files in Telegram cloud`}
+							{isTransferring()
+								? `${overallProgress()}% • Telegram Cluster Active`
+								: `${tasks().length} transfers recorded`}
 						</Typography>
 					</Box>
 
@@ -124,7 +126,7 @@ const GlobalUploadDock = () => {
 				</Paper>
 			</Show>
 
-			{/* Expanded Floating Upload Dock */}
+			{/* Expanded Floating Upload/Download Dock */}
 			<Show when={!isMinimized()}>
 				<Paper
 					id="global-upload-dock-expanded"
@@ -178,15 +180,15 @@ const GlobalUploadDock = () => {
 									variant="subtitle2"
 									sx={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.9rem' }}
 								>
-									Telegram Direct Stream
+									Telegram Cluster Transfers
 								</Typography>
 								<Typography
 									variant="caption"
 									sx={{ color: '#94a3b8', fontSize: '0.72rem' }}
 								>
-									{isUploading()
-										? `${activeCount()} active • Streams directly across routes`
-										: 'Uploads saved to Telegram cluster'}
+									{isTransferring()
+										? `${activeCount()} active transfer${activeCount() > 1 ? 's' : ''} across routes`
+										: 'AES-256 encrypted uploads & downloads'}
 								</Typography>
 							</Box>
 						</Box>
@@ -217,7 +219,7 @@ const GlobalUploadDock = () => {
 								size="small"
 								title="Close dock"
 								onClick={() => {
-									if (isUploading()) {
+									if (isTransferring()) {
 										setIsMinimized(true)
 									} else {
 										setIsDockOpen(false)
@@ -230,8 +232,8 @@ const GlobalUploadDock = () => {
 						</Box>
 					</Box>
 
-					{/* Overall Progress if actively uploading */}
-					<Show when={isUploading()}>
+					{/* Overall Progress if actively transferring */}
+					<Show when={isTransferring()}>
 						<LinearProgress
 							variant="determinate"
 							value={overallProgress()}
@@ -266,7 +268,7 @@ const GlobalUploadDock = () => {
 										bgcolor: '#18223c',
 										border: '1px solid',
 										borderColor:
-											task.status === 'uploading'
+											task.status === 'uploading' || task.status === 'downloading'
 												? 'rgba(99, 102, 241, 0.3)'
 												: task.status === 'completed'
 												? 'rgba(16, 185, 129, 0.25)'
@@ -286,26 +288,35 @@ const GlobalUploadDock = () => {
 										}}
 									>
 										<Box sx={{ minWidth: 0, flex: 1 }}>
-											<Typography
-												variant="body2"
-												sx={{
-													fontWeight: 600,
-													color: '#f8fafc',
-													overflow: 'hidden',
-													textOverflow: 'ellipsis',
-													whiteSpace: 'nowrap',
-												}}
-												title={task.fileName}
-											>
-												{task.fileName}
-											</Typography>
+											<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+												{task.type === 'download' ? (
+													<DownloadIcon sx={{ fontSize: 16, color: '#38bdf8' }} />
+												) : (
+													<CloudUploadIcon sx={{ fontSize: 16, color: '#818cf8' }} />
+												)}
+												<Typography
+													variant="body2"
+													sx={{
+														fontWeight: 600,
+														color: '#f8fafc',
+														overflow: 'hidden',
+														textOverflow: 'ellipsis',
+														whiteSpace: 'nowrap',
+													}}
+													title={task.fileName}
+												>
+													{task.fileName}
+												</Typography>
+											</Box>
 											<Typography
 												variant="caption"
-												sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+												sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.25 }}
 											>
-												<span>{convertSize(task.fileSize)}</span>
-												<span>•</span>
-												<span>{task.totalChunks} slice{task.totalChunks > 1 ? 's' : ''}</span>
+												<Show when={task.fileSize > 0}>
+													<span>{convertSize(task.fileSize)}</span>
+													<span>•</span>
+												</Show>
+												<span>{task.type === 'download' ? 'Decrypted Stream' : `${task.totalChunks} slice${task.totalChunks > 1 ? 's' : ''}`}</span>
 												<Show when={task.speed}>
 													<span>•</span>
 													<span style={{ color: '#38bdf8', 'font-weight': 600 }}>{task.speed}</span>
@@ -318,7 +329,7 @@ const GlobalUploadDock = () => {
 										</Box>
 
 										<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-											<Show when={task.status === 'uploading'}>
+											<Show when={task.status === 'uploading' || task.status === 'downloading'}>
 												<Chip
 													label={`${task.progress}%`}
 													size="small"
@@ -331,20 +342,22 @@ const GlobalUploadDock = () => {
 														border: '1px solid rgba(99, 102, 241, 0.4)',
 													}}
 												/>
-												<IconButton
-													size="small"
-													onClick={() => cancelUpload(task.id)}
-													title="Cancel upload"
-													sx={{ p: 0.5, color: '#f87171' }}
-												>
-													<CloseIcon sx={{ fontSize: 16 }} />
-												</IconButton>
+												<Show when={task.type !== 'download'}>
+													<IconButton
+														size="small"
+														onClick={() => cancelUpload(task.id)}
+														title="Cancel"
+														sx={{ p: 0.5, color: '#f87171' }}
+													>
+														<CloseIcon sx={{ fontSize: 16 }} />
+													</IconButton>
+												</Show>
 											</Show>
 
 											<Show when={task.status === 'completed'}>
 												<Chip
 													icon={<CheckCircleIcon sx={{ fontSize: '14px !important', color: '#34d399 !important' }} />}
-													label="In Telegram"
+													label={task.type === 'download' ? 'Downloaded' : 'In Telegram'}
 													size="small"
 													sx={{
 														height: 22,
