@@ -388,6 +388,19 @@ const encodePath = (path) => {
 }
 
 /**
+ * Generates a direct streaming download URL for native browser download
+ * @param {string} storage_id
+ * @param {string} path
+ * @param {string} [token]
+ * @returns {string}
+ */
+const getDownloadUrl = (storage_id, path, token = null) => {
+	const encodedPath = encodePath(path)
+	const rawToken = token || getRawAuthToken() || ''
+	return `${API_BASE}/storages/${storage_id}/files/download/${encodedPath}?token=${encodeURIComponent(rawToken)}`
+}
+
+/**
  * @param {string} storage_id
  * @param {string} path
  * @param {(progress: number) => void} onProgress
@@ -395,7 +408,8 @@ const encodePath = (path) => {
  */
 const download = async (storage_id, path, onProgress = null) => {
 	const encodedPath = encodePath(path)
-	const url = `/storages/${storage_id}/files/download/${encodedPath}`
+	const rawToken = getRawAuthToken() || ''
+	const url = `/storages/${storage_id}/files/download/${encodedPath}?token=${encodeURIComponent(rawToken)}`
 	const auth_token = getAuthToken()
 
 	return await apiDownloadRequest(url, auth_token, onProgress)
@@ -414,6 +428,22 @@ const deleteFile = async (storage_id, path) => {
 	)
 }
 
+function getRawAuthToken() {
+	const [store] = createLocalStore()
+	if (store && store.access_token) {
+		return store.access_token
+	}
+	return ''
+}
+
+function getAuthToken() {
+	const token = getRawAuthToken()
+	if (token) {
+		return `Bearer ${token}`
+	}
+	return null
+}
+
 /////////////////////////////////////////////////////////////
 ////  API Export
 /////////////////////////////////////////////////////////////
@@ -428,6 +458,7 @@ const API = {
 	auth: {
 		login,
 		me: getMe,
+		getToken: getRawAuthToken,
 	},
 	storages: {
 		createStorage,
@@ -456,16 +487,9 @@ const API = {
 		getFSLayer,
 		getFileInfo,
 		download,
+		getDownloadUrl,
 		deleteFile,
 	},
-}
-
-const getAuthToken = () => {
-	const [store] = createLocalStore()
-	if (store && store.access_token) {
-		return `Bearer ${store.access_token}`
-	}
-	return null
 }
 
 export default API
