@@ -206,10 +206,35 @@ if (!fs.existsSync(CHUNKS_DIR)) {
 	fs.mkdirSync(CHUNKS_DIR, { recursive: true })
 }
 
+// Secure PBKDF2 Password Hashing
+function hashPassword(password: string): string {
+	const salt = crypto.randomBytes(16).toString('hex')
+	const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex')
+	return `${salt}:${hash}`
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+	if (!storedHash) return false
+	try {
+		if (storedHash.includes(':')) {
+			const [salt, hash] = storedHash.split(':')
+			const testHash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex')
+			return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(testHash, 'hex'))
+		}
+		// Fallback for legacy plain text entry during migration
+		return password === storedHash
+	} catch {
+		return false
+	}
+}
+
 interface User {
 	id: string
 	email: string
 	passwordHash: string
+	role: 'admin' | 'user'
+	createdAt: string
+	createdBy?: string
 }
 
 interface StorageItem {
@@ -312,15 +337,19 @@ function saveDatabaseToDisk() {
 
 function loadDatabaseFromDisk() {
 	try {
+		const normalizedSuperEmail = SUPERUSER_EMAIL.trim().toLowerCase()
+
 		if (!fs.existsSync(DB_FILE)) {
-			// No saved database yet, create superuser account
+			// No saved database yet, create superuser account with secure hash
 			const defaultUserId = '00000000-0000-0000-0000-000000000001'
 			const defaultUser: User = {
 				id: defaultUserId,
-				email: SUPERUSER_EMAIL,
-				passwordHash: SUPERUSER_PASS,
+				email: normalizedSuperEmail,
+				passwordHash: hashPassword(SUPERUSER_PASS),
+				role: 'admin',
+				createdAt: new Date().toISOString(),
 			}
-			users.set(defaultUser.email, defaultUser)
+			users.set(normalizedSuperEmail, defaultUser)
 
 			// If user set TELEGRAM_BOT_TOKEN in env, register as first worker
 			if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN.includes('DEMO_WORKER')) {
@@ -347,17 +376,35 @@ function loadDatabaseFromDisk() {
 		users.clear()
 		if (Array.isArray(data.users)) {
 			for (const [email, user] of data.users) {
-				users.set(email, user)
+				const normEmail = (email || user.email).trim().toLowerCase()
+				// Filter out invalid placeholder accounts
+				if (user.passwordHash && user.passwordHash !== 'placeholder') {
+					users.set(normEmail, {
+						...user,
+						email: normEmail,
+						role: user.role || (normEmail === normalizedSuperEmail ? 'admin' : 'user'),
+						createdAt: user.createdAt || new Date().toISOString(),
+					})
+				}
 			}
 		}
 
-		// Ensure superuser exists
-		if (!users.has(SUPERUSER_EMAIL)) {
-			users.set(SUPERUSER_EMAIL, {
+		// Ensure superuser exists and is an admin
+		const existingSuper = users.get(normalizedSuperEmail)
+		if (!existingSuper) {
+			users.set(normalizedSuperEmail, {
 				id: '00000000-0000-0000-0000-000000000001',
-				email: SUPERUSER_EMAIL,
-				passwordHash: SUPERUSER_PASS,
+				email: normalizedSuperEmail,
+				passwordHash: hashPassword(SUPERUSER_PASS),
+				role: 'admin',
+				createdAt: new Date().toISOString(),
 			})
+		} else {
+			existingSuper.role = 'admin'
+			// If superuser hash was plain text or not formatted with salt, re-hash it
+			if (!existingSuper.passwordHash.includes(':')) {
+				existingSuper.passwordHash = hashPassword(SUPERUSER_PASS)
+			}
 		}
 
 		// Restore storages
@@ -436,7 +483,8 @@ function loadDatabaseFromDisk() {
 			}
 		}
 
-		console.log(`[Database Loaded] ${storages.size} vault(s), ${storageWorkers.size} worker(s), ${users.size} user(s) active`)
+		saveDatabaseToDisk()
+		console.log(`[Database Loaded] ${storages.size} vault(s), ${storageWorkers.size} worker(s), ${users.size} authenticated user(s)`)
 	} catch (err: any) {
 		console.error('[Database Load Error]', err.message)
 	}
@@ -445,29 +493,45 @@ function loadDatabaseFromDisk() {
 // Load database immediately on server startup
 loadDatabaseFromDisk()
 
-// Helper Auth Middleware
+// Helper Auth Middleware - STRICT validation
 const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
-	const fallbackUser = users.get(SUPERUSER_EMAIL) || Array.from(users.values())[0] || {
-		id: '00000000-0000-0000-0000-000000000001',
-		email: SUPERUSER_EMAIL,
-		passwordHash: SUPERUSER_PASS,
-	}
-
 	const authHeader = req.headers['authorization']
 	if (!authHeader) {
-		;(req as any).user = { id: fallbackUser.id, email: fallbackUser.email }
-		return next()
+		return res.status(401).json({ error: 'Authentication required. Please sign in.' })
 	}
 
-	const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader
+	const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : authHeader.trim()
+	if (!token || token === 'demo_admin_token' || token === 'null' || token === 'undefined') {
+		return res.status(401).json({ error: 'Invalid or missing authentication token.' })
+	}
+
 	try {
-		const decoded = jwt.verify(token, SECRET_KEY) as { id: string; email: string }
-		;(req as any).user = decoded
+		const decoded = jwt.verify(token, SECRET_KEY) as { id: string; email: string; role?: string }
+		const normalizedEmail = (decoded.email || '').trim().toLowerCase()
+		const user = users.get(normalizedEmail)
+
+		if (!user) {
+			return res.status(401).json({ error: 'User account not found or deactivated. Please sign in again.' })
+		}
+
+		;(req as any).user = {
+			id: user.id,
+			email: user.email,
+			role: user.role || 'user',
+		}
 		next()
 	} catch {
-		;(req as any).user = { id: fallbackUser.id, email: fallbackUser.email }
-		next()
+		return res.status(401).json({ error: 'Session expired. Please sign in again.' })
 	}
+}
+
+// Require Admin Middleware
+const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+	const user = (req as any).user
+	if (!user || user.role !== 'admin') {
+		return res.status(403).json({ error: 'Access denied: Administrator privileges required.' })
+	}
+	next()
 }
 
 // -------------------------------------------------------------
@@ -480,55 +544,193 @@ app.get('/api/health', (_req, res) => {
 		status: 'ok',
 		service: 'pentaract-faster',
 		encryption: 'AES-256-GCM',
-		version: '2.4.0',
+		version: '2.5.0',
+		auth_mode: 'database_backed_pbkdf2',
+		users_count: users.size,
 		uptime_seconds: process.uptime(),
 	})
 })
 
-// Register
-app.post('/api/users', (req, res) => {
+// Public Registration - Disabled
+app.post('/api/users', (_req, res) => {
+	return res.status(403).json({
+		error: 'Public registration is disabled. User accounts must be created by an Administrator.',
+	})
+})
+
+// Login Endpoint - Strictly verifies credentials against database
+app.post('/api/auth/login', (req, res) => {
 	const { email, password } = req.body || {}
 	if (!email || !password) {
-		return res.status(400).json({ error: 'Email and password are required' })
+		return res.status(400).json({ error: 'Email and password are required.' })
 	}
 
-	if (users.has(email)) {
-		return res.status(400).json({ error: 'User with this email already exists' })
+	const normalizedEmail = email.trim().toLowerCase()
+	const user = users.get(normalizedEmail)
+
+	if (!user) {
+		return res.status(401).json({ error: 'Invalid email or password.' })
+	}
+
+	const isMatch = verifyPassword(password, user.passwordHash)
+	if (!isMatch) {
+		return res.status(401).json({ error: 'Invalid email or password.' })
+	}
+
+	// Upgrade legacy plaintext hash if encountered
+	if (!user.passwordHash.includes(':')) {
+		user.passwordHash = hashPassword(password)
+		saveDatabaseToDisk()
+	}
+
+	const token = jwt.sign(
+		{ id: user.id, email: user.email, role: user.role || 'user' },
+		SECRET_KEY,
+		{ expiresIn: ACCESS_TOKEN_EXPIRE_SECS }
+	)
+
+	res.json({
+		access_token: token,
+		user: {
+			id: user.id,
+			email: user.email,
+			role: user.role || 'user',
+		},
+	})
+})
+
+// Current User Profile
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+	const user = (req as any).user
+	res.json({ user })
+})
+
+// -------------------------------------------------------------
+// Admin User Management Endpoints
+// -------------------------------------------------------------
+
+// Admin: List all users
+app.get('/api/admin/users', authenticateToken, requireAdmin, (_req, res) => {
+	const userList = Array.from(users.values()).map((u) => ({
+		id: u.id,
+		email: u.email,
+		role: u.role || 'user',
+		createdAt: u.createdAt,
+		createdBy: u.createdBy,
+	}))
+	res.json({ users: userList })
+})
+
+// Admin: Create new user
+app.post('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
+	const { email, password, role } = req.body || {}
+	const creator = (req as any).user
+
+	if (!email || !password) {
+		return res.status(400).json({ error: 'Email and password are required.' })
+	}
+
+	if (password.length < 6) {
+		return res.status(400).json({ error: 'Password must be at least 6 characters long.' })
+	}
+
+	const normalizedEmail = email.trim().toLowerCase()
+	if (users.has(normalizedEmail)) {
+		return res.status(400).json({ error: 'A user with this email address already exists.' })
 	}
 
 	const newUser: User = {
 		id: uuidv4(),
-		email,
-		passwordHash: password,
+		email: normalizedEmail,
+		passwordHash: hashPassword(password),
+		role: role === 'admin' ? 'admin' : 'user',
+		createdAt: new Date().toISOString(),
+		createdBy: creator?.email || 'admin',
 	}
-	users.set(email, newUser)
+
+	users.set(normalizedEmail, newUser)
 	saveDatabaseToDisk()
-	res.status(200).json({ message: 'User registered successfully' })
+
+	res.status(201).json({
+		message: 'User created successfully.',
+		user: {
+			id: newUser.id,
+			email: newUser.email,
+			role: newUser.role,
+			createdAt: newUser.createdAt,
+			createdBy: newUser.createdBy,
+		},
+	})
 })
 
-// Login
-app.post('/api/auth/login', (req, res) => {
-	const { email, password } = req.body || {}
-	if (!email) {
-		return res.status(400).json({ error: 'Email is required' })
+// Admin: Reset user password
+app.patch('/api/admin/users/:id/password', authenticateToken, (req, res) => {
+	const targetUserId = req.params.id
+	const { newPassword } = req.body || {}
+	const currentUser = (req as any).user
+
+	if (!newPassword || newPassword.length < 6) {
+		return res.status(400).json({ error: 'New password must be at least 6 characters long.' })
 	}
 
-	let user = users.get(email)
-	if (!user) {
-		user = {
-			id: uuidv4(),
-			email,
-			passwordHash: password || 'admin123',
+	// Only admin or the user themselves can change password
+	if (currentUser.role !== 'admin' && currentUser.id !== targetUserId) {
+		return res.status(403).json({ error: 'Forbidden: You cannot change another user\'s password.' })
+	}
+
+	let targetUser: User | undefined
+	for (const u of users.values()) {
+		if (u.id === targetUserId) {
+			targetUser = u
+			break
 		}
-		users.set(email, user)
-		saveDatabaseToDisk()
 	}
 
-	const token = jwt.sign({ id: user.id, email: user.email }, SECRET_KEY, {
-		expiresIn: ACCESS_TOKEN_EXPIRE_SECS,
-	})
+	if (!targetUser) {
+		return res.status(404).json({ error: 'User not found.' })
+	}
 
-	res.json({ access_token: token })
+	targetUser.passwordHash = hashPassword(newPassword)
+	saveDatabaseToDisk()
+
+	res.json({ message: 'Password updated successfully.' })
+})
+
+// Admin: Delete user
+app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, (req, res) => {
+	const targetUserId = req.params.id
+	const currentUser = (req as any).user
+
+	if (currentUser.id === targetUserId) {
+		return res.status(400).json({ error: 'You cannot delete your own active administrator account.' })
+	}
+
+	let userEmailToDelete: string | null = null
+	for (const [email, u] of users.entries()) {
+		if (u.id === targetUserId) {
+			userEmailToDelete = email
+			break
+		}
+	}
+
+	if (!userEmailToDelete) {
+		return res.status(404).json({ error: 'User not found.' })
+	}
+
+	const normalizedSuperEmail = SUPERUSER_EMAIL.trim().toLowerCase()
+	if (userEmailToDelete === normalizedSuperEmail) {
+		return res.status(400).json({ error: 'The primary superuser account cannot be deleted.' })
+	}
+
+	users.delete(userEmailToDelete)
+
+	// Clean up access rules
+	for (const rules of accessRules.values()) {
+		rules.delete(targetUserId)
+	}
+
+	saveDatabaseToDisk()
+	res.status(200).json({ message: 'User account deleted successfully.' })
 })
 
 // Storages: List

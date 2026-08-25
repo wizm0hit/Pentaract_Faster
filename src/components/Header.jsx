@@ -135,6 +135,7 @@ const Header = () => {
 							sx={{
 								display: { xs: 'none', md: 'flex' },
 								alignItems: 'center',
+								gap: 1,
 								px: 1.5,
 								py: 0.5,
 								borderRadius: 2,
@@ -142,9 +143,22 @@ const Header = () => {
 								border: '1px solid rgba(255, 255, 255, 0.08)',
 							}}
 						>
-							<Typography variant="caption" sx={{ color: '#cbd5e1', fontWeight: 500 }}>
+							<Typography variant="caption" sx={{ color: '#cbd5e1', fontWeight: 600 }}>
 								{store.user?.email || 'Authenticated User'}
 							</Typography>
+							{store.user?.role && (
+								<Chip
+									label={store.user.role === 'admin' ? 'Admin' : 'User'}
+									size="small"
+									sx={{
+										height: 18,
+										fontSize: 9.5,
+										fontWeight: 800,
+										backgroundColor: store.user.role === 'admin' ? 'rgba(99, 102, 241, 0.25)' : 'rgba(56, 189, 248, 0.15)',
+										color: store.user.role === 'admin' ? '#a5b4fc' : '#7dd3fc',
+									}}
+								/>
+							)}
 						</Box>
 
 						{/* Logout */}

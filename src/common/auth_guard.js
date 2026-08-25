@@ -7,8 +7,16 @@ export function checkAuth() {
 	const location = useLocation()
 
 	if (!store.access_token) {
-		setStore('redirect', location.pathname)
-
-		navigate('/login')
+		if (location.pathname && location.pathname !== '/login' && location.pathname !== '/register') {
+			setStore('redirect', location.pathname)
+		}
+		navigate('/login', { replace: true })
+		return false
 	}
+	return true
+}
+
+export function isAuthenticated() {
+	const [store] = createLocalStore()
+	return Boolean(store.access_token)
 }

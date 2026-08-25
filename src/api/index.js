@@ -3,29 +3,67 @@ import apiRequest, { apiMultipartRequest, apiDownloadRequest } from './request'
 import { alertStore } from '../components/AlertStack'
 
 /////////////////////////////////////////////////////////////
-////  USERS
+////  ADMIN & USERS
 /////////////////////////////////////////////////////////////
 
 /**
- * @typedef {Object} TokenData
- * @property {string} access_token
+ * @typedef {Object} AdminUser
+ * @property {string} id
+ * @property {string} email
+ * @property {'admin' | 'user'} role
+ * @property {string} createdAt
+ * @property {string} [createdBy]
  */
+
+/**
+ * @returns {Promise<{ users: AdminUser[] }>}
+ */
+const listAdminUsers = async () => {
+	return await apiRequest('/admin/users', 'get', getAuthToken())
+}
 
 /**
  * @param {string} email
  * @param {string} password
+ * @param {'admin' | 'user'} role
  * @returns {Promise<any>}
  */
-const register = async (email, password) => {
-	return await apiRequest('/users', 'post', undefined, {
+const createAdminUser = async (email, password, role = 'user') => {
+	return await apiRequest('/admin/users', 'post', getAuthToken(), {
 		email,
 		password,
+		role,
 	})
+}
+
+/**
+ * @param {string} id
+ * @param {string} newPassword
+ * @returns {Promise<any>}
+ */
+const resetUserPassword = async (id, newPassword) => {
+	return await apiRequest(`/admin/users/${id}/password`, 'patch', getAuthToken(), {
+		newPassword,
+	})
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<any>}
+ */
+const deleteAdminUser = async (id) => {
+	return await apiRequest(`/admin/users/${id}`, 'delete', getAuthToken())
 }
 
 /////////////////////////////////////////////////////////////
 ////  AUTH
 /////////////////////////////////////////////////////////////
+
+/**
+ * @typedef {Object} TokenData
+ * @property {string} access_token
+ * @property {{ id: string, email: string, role: string }} [user]
+ */
 
 /**
  * @param {string} email
@@ -37,6 +75,13 @@ const login = async (email, password) => {
 		email,
 		password,
 	})
+}
+
+/**
+ * @returns {Promise<{ user: { id: string, email: string, role: string } }>}
+ */
+const getMe = async () => {
+	return await apiRequest('/auth/me', 'get', getAuthToken())
 }
 
 /////////////////////////////////////////////////////////////
@@ -342,11 +387,15 @@ const deleteFile = async (storage_id, path) => {
 /////////////////////////////////////////////////////////////
 
 const API = {
-	users: {
-		register,
+	admin: {
+		listUsers: listAdminUsers,
+		createUser: createAdminUser,
+		resetPassword: resetUserPassword,
+		deleteUser: deleteAdminUser,
 	},
 	auth: {
 		login,
+		me: getMe,
 	},
 	storages: {
 		createStorage,
@@ -383,7 +432,7 @@ const getAuthToken = () => {
 	if (store && store.access_token) {
 		return `Bearer ${store.access_token}`
 	}
-	return 'Bearer demo_admin_token'
+	return null
 }
 
 export default API

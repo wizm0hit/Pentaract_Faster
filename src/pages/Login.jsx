@@ -1,5 +1,4 @@
-import { onMount } from 'solid-js'
-import Container from '@suid/material/Container'
+import { onMount, createSignal } from 'solid-js'
 import Box from '@suid/material/Box'
 import TextField from '@suid/material/TextField'
 import Button from '@suid/material/Button'
@@ -7,9 +6,11 @@ import Paper from '@suid/material/Paper'
 import Typography from '@suid/material/Typography'
 import Divider from '@suid/material/Divider'
 import Chip from '@suid/material/Chip'
+import Alert from '@suid/material/Alert'
 import ShieldIcon from '@suid/icons-material/Shield'
 import LockIcon from '@suid/icons-material/Lock'
-import { A, useNavigate } from '@solidjs/router'
+import AdminPanelSettingsIcon from '@suid/icons-material/AdminPanelSettings'
+import { useNavigate } from '@solidjs/router'
 
 import createLocalStore from '../../libs'
 import API from '../api'
@@ -20,6 +21,8 @@ const Login = () => {
 	const [store, setStore] = createLocalStore()
 	const { addAlert } = alertStore
 	const navigate = useNavigate()
+	const [loading, setLoading] = createSignal(false)
+	const [errorMsg, setErrorMsg] = createSignal('')
 
 	onMount(() => {
 		if (store.access_token) {
@@ -29,20 +32,32 @@ const Login = () => {
 
 	const handleSubmit = async (event) => {
 		event.preventDefault()
+		setErrorMsg('')
+		setLoading(true)
+
 		const data = new FormData(event.currentTarget)
-		const email = data.get('email')
-		const password = data.get('password')
+		const email = data.get('email')?.toString().trim()
+		const password = data.get('password')?.toString()
+
+		if (!email || !password) {
+			setErrorMsg('Please enter both email and password.')
+			setLoading(false)
+			return
+		}
 
 		try {
 			const tokenData = await API.auth.login(email, password)
 			setStore('access_token', tokenData.access_token)
-			setStore('user', { email })
+			setStore('user', tokenData.user || { email, role: 'user' })
 			addAlert('Logged in successfully', 'success')
 
 			const redirect_url = store.redirect || '/storages'
 			navigate(redirect_url)
 		} catch (err) {
 			console.error(err)
+			setErrorMsg(err.message || 'Invalid email or password.')
+		} finally {
+			setLoading(false)
 		}
 	}
 
@@ -93,7 +108,7 @@ const Login = () => {
 					</Typography>
 					<Chip
 						icon={<ShieldIcon sx={{ fontSize: '13px !important', color: '#10b981 !important' }} />}
-						label="AES-256-GCM Encrypted"
+						label="AES-256-GCM Encrypted Vault"
 						size="small"
 						sx={{ mt: 1.5, backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 600, fontSize: 11 }}
 					/>
@@ -102,11 +117,17 @@ const Login = () => {
 				<Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }} />
 
 				<Box component="form" onSubmit={handleSubmit} sx={{ p: 4, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+					{errorMsg() && (
+						<Alert severity="error" sx={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 2 }}>
+							{errorMsg()}
+						</Alert>
+					)}
+
 					<TextField
 						name="email"
 						label="Email Address"
 						type="email"
-						placeholder="you@example.com"
+						placeholder="admin@example.com"
 						variant="outlined"
 						fullWidth
 						required
@@ -142,6 +163,7 @@ const Login = () => {
 						type="submit"
 						variant="contained"
 						size="large"
+						disabled={loading()}
 						sx={{
 							background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
 							color: 'white',
@@ -152,13 +174,25 @@ const Login = () => {
 							boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
 						}}
 					>
-						Sign In
+						{loading() ? 'Authenticating...' : 'Sign In'}
 					</Button>
 
-					<Box sx={{ textAlign: 'center', mt: 1 }}>
-						<A href="/register" style={{ color: '#818cf8', 'text-decoration': 'none', 'font-size': '14px', 'font-weight': 600 }}>
-							Don't have an account? Create one
-						</A>
+					<Box
+						sx={{
+							mt: 1,
+							p: 1.5,
+							borderRadius: 2,
+							backgroundColor: 'rgba(255, 255, 255, 0.03)',
+							border: '1px solid rgba(255, 255, 255, 0.06)',
+							display: 'flex',
+							alignItems: 'center',
+							gap: 1.2,
+						}}
+					>
+						<LockIcon sx={{ fontSize: 16, color: '#94a3b8' }} />
+						<Typography variant="caption" sx={{ color: '#94a3b8', fontSize: 11.5, lineHeight: 1.4 }}>
+							Private encrypted vault. User accounts are created and managed by the system administrator.
+						</Typography>
 					</Box>
 				</Box>
 			</Paper>

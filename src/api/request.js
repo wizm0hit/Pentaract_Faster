@@ -40,7 +40,34 @@ const apiRequest = async (
 		})
 
 		if (!response.ok) {
-			throw new Error(await response.text())
+			const text = await response.text()
+			let errMsg = text
+			try {
+				const json = JSON.parse(text)
+				if (json.error) errMsg = json.error
+				else if (json.message) errMsg = json.message
+			} catch {}
+
+			// Handle session expiry or missing auth
+			if (response.status === 401) {
+				if (!path.includes('/auth/login')) {
+					try {
+						const raw = localStorage.getItem('local_store')
+						if (raw) {
+							const parsed = JSON.parse(raw)
+							delete parsed.access_token
+							localStorage.setItem('local_store', JSON.stringify(parsed))
+						}
+					} catch {}
+					if (window.location.pathname !== '/login') {
+						window.location.href = '/login'
+					}
+				}
+			}
+
+			const err = new Error(errMsg || `Request failed with status ${response.status}`)
+			err.status = response.status
+			throw err
 		}
 
 		if (return_response) {
@@ -51,7 +78,10 @@ const apiRequest = async (
 			return await response.json()
 		} catch {}
 	} catch (err) {
-		addAlert(err.message, 'error')
+		// Only show toast alert if not a login attempt (which is handled inline)
+		if (!path.includes('/auth/login') && err.status !== 401) {
+			addAlert(err.message, 'error')
+		}
 
 		throw err
 	}

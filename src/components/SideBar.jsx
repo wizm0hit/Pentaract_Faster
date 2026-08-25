@@ -8,22 +8,28 @@ import ListItem from '@suid/material/ListItem'
 import ListItemButton from '@suid/material/ListItemButton'
 import Box from '@suid/material/Box'
 import Typography from '@suid/material/Typography'
-import { createSignal } from 'solid-js'
+import { createSignal, Show } from 'solid-js'
 import StorageIcon from '@suid/icons-material/Storage'
 import SmartToyIcon from '@suid/icons-material/SmartToy'
 import CloudQueueIcon from '@suid/icons-material/CloudQueue'
 import VpnKeyIcon from '@suid/icons-material/VpnKey'
+import GroupIcon from '@suid/icons-material/Group'
+import AdminPanelSettingsIcon from '@suid/icons-material/AdminPanelSettings'
 
 import SideBarItem from './SideBarItem'
+import createLocalStore from '../../libs'
 
 const initOpen = window.innerWidth > 900
 
 const SideBar = () => {
 	const [open, setOpen] = createSignal(initOpen)
+	const [store] = createLocalStore()
 
 	const toggleDrawerOpen = () => {
 		setOpen((o) => !o)
 	}
+
+	const isAdmin = () => store.user?.role === 'admin' || !store.user?.role
 
 	return (
 		<Drawer
@@ -70,6 +76,11 @@ const SideBar = () => {
 				<SideBarItem text="Storage Workers" link="/storage_workers" isFull={open()}>
 					<SmartToyIcon />
 				</SideBarItem>
+				<Show when={isAdmin()}>
+					<SideBarItem text="User Accounts" link="/users" isFull={open()}>
+						<GroupIcon />
+					</SideBarItem>
+				</Show>
 			</List>
 
 			{open() && (
