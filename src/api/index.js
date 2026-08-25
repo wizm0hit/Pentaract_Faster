@@ -403,16 +403,17 @@ const getDownloadUrl = (storage_id, path, token = null) => {
 /**
  * @param {string} storage_id
  * @param {string} path
- * @param {(progress: number) => void} onProgress
+ * @param {(progress: number, loaded?: number, total?: number) => void} [onProgress]
+ * @param {AbortSignal} [signal]
  * @returns {Promise<Blob>}
  */
-const download = async (storage_id, path, onProgress = null) => {
+const download = async (storage_id, path, onProgress = null, signal = null) => {
 	const encodedPath = encodePath(path)
 	const rawToken = getRawAuthToken() || ''
 	const url = `/storages/${storage_id}/files/download/${encodedPath}?token=${encodeURIComponent(rawToken)}`
 	const auth_token = getAuthToken()
 
-	return await apiDownloadRequest(url, auth_token, onProgress)
+	return await apiDownloadRequest(url, auth_token, onProgress, signal)
 }
 
 /**

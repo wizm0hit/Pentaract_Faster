@@ -196,79 +196,70 @@ export const apiMultipartRequest = async (
 export const apiDownloadRequest = async (
 	path,
 	auth_token,
-	onProgress = null
+	onProgress = null,
+	signal = null
 ) => {
 	const { addAlert } = alertStore
 
 	const fullpath = `${API_BASE}${path}`
 
 	try {
-		// Use XMLHttpRequest for progress tracking
-		if (onProgress) {
-			return new Promise((resolve, reject) => {
-				const xhr = new XMLHttpRequest()
-				xhr.responseType = 'blob'
+		return new Promise((resolve, reject) => {
+			const xhr = new XMLHttpRequest()
+			xhr.responseType = 'blob'
 
-				// Track download progress (response, not upload)
-				xhr.addEventListener('progress', (e) => {
-					if (e.lengthComputable) {
-						const percentComplete = (e.loaded / e.total) * 100
-						onProgress(percentComplete)
-					}
+			if (signal) {
+				signal.addEventListener('abort', () => {
+					xhr.abort()
+					reject(new DOMException('Download aborted', 'AbortError'))
 				})
+			}
 
-				xhr.addEventListener('load', () => {
-					if (xhr.status >= 200 && xhr.status < 300) {
-						const blob = xhr.response
-						if (!blob || blob.size === 0) {
-							const error = new Error('Download failed: Empty file received')
-							addAlert(error.message, 'error')
-							reject(error)
-							return
-						}
-						resolve(blob)
-					} else {
-						const error = new Error(xhr.responseText || 'Download failed')
+			// Track download progress (response bytes received)
+			xhr.addEventListener('progress', (e) => {
+				if (onProgress && e.lengthComputable && e.total > 0) {
+					const percentComplete = Math.min(100, Math.round((e.loaded / e.total) * 100))
+					onProgress(percentComplete, e.loaded, e.total)
+				}
+			})
+
+			xhr.addEventListener('load', async () => {
+				if (xhr.status >= 200 && xhr.status < 300) {
+					const blob = xhr.response
+					if (!blob || blob.size === 0) {
+						const error = new Error('Download failed: Empty file received')
 						addAlert(error.message, 'error')
 						reject(error)
+						return
 					}
-				})
-
-				xhr.addEventListener('error', () => {
-					const error = new Error('Network error')
+					resolve(blob)
+				} else {
+					let errorMsg = `Download failed (HTTP ${xhr.status})`
+					try {
+						if (xhr.response instanceof Blob) {
+							const errorText = await xhr.response.text()
+							const json = JSON.parse(errorText)
+							if (json.error) errorMsg = json.error
+						}
+					} catch (_) {}
+					const error = new Error(errorMsg)
 					addAlert(error.message, 'error')
 					reject(error)
-				})
-
-				xhr.open('GET', fullpath)
-				if (auth_token) {
-					xhr.setRequestHeader('Authorization', auth_token)
 				}
-				xhr.send()
 			})
-		}
 
-		// Fallback to fetch if no progress callback
-		const headers = new Headers()
-		if (auth_token) {
-			headers.append('Authorization', auth_token)
-		}
+			xhr.addEventListener('error', () => {
+				const error = new Error('Network error during download')
+				addAlert(error.message, 'error')
+				reject(error)
+			})
 
-		const response = await fetch(fullpath, {
-			method: 'get',
-			headers,
+			xhr.open('GET', fullpath)
+			if (auth_token) {
+				xhr.setRequestHeader('Authorization', auth_token)
+			}
+			xhr.send()
 		})
-
-		if (!response.ok) {
-			throw new Error(await response.text())
-		}
-
-		const blob = await response.blob()
-		if (!blob || blob.size === 0) {
-			throw new Error('Download failed: Empty file received')
-		}
-
-		return blob
 	} catch (err) {
 		addAlert(err.message, 'error')
 		throw err

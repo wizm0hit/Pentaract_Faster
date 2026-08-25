@@ -342,16 +342,14 @@ const GlobalUploadDock = () => {
 														border: '1px solid rgba(99, 102, 241, 0.4)',
 													}}
 												/>
-												<Show when={task.type !== 'download'}>
-													<IconButton
-														size="small"
-														onClick={() => cancelUpload(task.id)}
-														title="Cancel"
-														sx={{ p: 0.5, color: '#f87171' }}
-													>
-														<CloseIcon sx={{ fontSize: 16 }} />
-													</IconButton>
-												</Show>
+												<IconButton
+													size="small"
+													onClick={() => cancelUpload(task.id)}
+													title="Cancel transfer"
+													sx={{ p: 0.5, color: '#f87171' }}
+												>
+													<CloseIcon sx={{ fontSize: 16 }} />
+												</IconButton>
 											</Show>
 
 											<Show when={task.status === 'completed'}>

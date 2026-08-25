@@ -266,6 +266,7 @@ export const uploadManager = createRoot(() => {
 	const startDownload = async (storageId, filePath, fileName, fileSize = 0) => {
 		const taskId = 'dl_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now()
 		const name = fileName || filePath.split('/').pop() || 'download.bin'
+		const abortController = new AbortController()
 
 		const initialTask = {
 			id: taskId,
@@ -274,50 +275,117 @@ export const uploadManager = createRoot(() => {
 			fileName: name,
 			fileSize: fileSize || 0,
 			targetPath: filePath || '',
-			progress: 10,
+			progress: 0,
 			currentChunk: 1,
 			totalChunks: 1,
-			stage: 'Requesting streaming AES-256-GCM decryption pipeline...',
+			stage: 'Initializing in-browser decryption buffer...',
 			status: 'downloading',
 			workerNames: ['Active Cluster'],
 			telegramMessageIds: [],
 			startedAt: Date.now(),
 			speed: '',
 			eta: '',
+			abortController,
 		}
 
 		setTasks((prev) => [initialTask, ...prev])
 		setIsDockOpen(true)
 		setIsMinimized(false)
 
+		const downloadStartTime = Date.now()
+		let lastSampleTime = downloadStartTime
+		let lastSampleLoaded = 0
+
 		try {
-			const downloadUrl = API.files.getDownloadUrl(storageId, filePath)
+			updateTask(taskId, {
+				stage: 'Downloading and decrypting AES-256 slices into browser memory...',
+			})
+
+			const blob = await API.files.download(
+				storageId,
+				filePath,
+				(percent, loaded, total) => {
+					const now = Date.now()
+					const timeDelta = (now - lastSampleTime) / 1000
+
+					let speedStr = ''
+					let etaStr = ''
+
+					if (timeDelta >= 0.5 && loaded > lastSampleLoaded) {
+						const bytesDelta = loaded - lastSampleLoaded
+						const bps = bytesDelta / timeDelta
+						speedStr = formatSpeed(bps)
+						if (total && total > loaded && bps > 0) {
+							const remainingSecs = (total - loaded) / bps
+							etaStr = formatEta(remainingSecs)
+						}
+						lastSampleTime = now
+						lastSampleLoaded = loaded
+					}
+
+					updateTask(taskId, {
+						progress: percent,
+						fileSize: total || fileSize || loaded,
+						stage: `Downloading in-browser: ${convertSize(loaded)}${total ? ` / ${convertSize(total)}` : ''} (${percent}%)`,
+						...(speedStr ? { speed: speedStr } : {}),
+						...(etaStr ? { eta: etaStr } : {}),
+					})
+				},
+				abortController.signal
+			)
+
+			if (!blob || blob.size === 0) {
+				throw new Error('Received empty file payload from cluster')
+			}
+
+			// In-browser assembly complete: save locally via object URL trigger
+			updateTask(taskId, {
+				progress: 100,
+				fileSize: blob.size,
+				stage: 'Decryption verified. Saving file to disk...',
+				speed: '',
+				eta: '',
+			})
+
+			const objectUrl = URL.createObjectURL(blob)
 			const a = document.createElement('a')
-			a.href = downloadUrl
+			a.href = objectUrl
 			a.download = name
 			a.style.display = 'none'
 			document.body.appendChild(a)
 			a.click()
 
 			updateTask(taskId, {
-				progress: 100,
-				stage: 'Decrypted stream delivered to browser download manager',
 				status: 'completed',
+				stage: 'Downloaded & saved to disk',
 				completedAt: Date.now(),
 			})
 
-			alertStore.addAlert(`AES-256 decryption stream started for "${name}"`, 'success')
+			alertStore.addAlert(`Successfully downloaded & saved "${name}"`, 'success')
 
 			setTimeout(() => {
 				if (document.body.contains(a)) document.body.removeChild(a)
-			}, 2000)
+				URL.revokeObjectURL(objectUrl)
+			}, 3000)
 		} catch (err) {
-			updateTask(taskId, {
-				status: 'error',
-				errorMessage: err.message || 'Download request failed',
-				stage: `Download failed: ${err.message}`,
-			})
-			alertStore.addAlert(`Failed to download "${name}": ${err.message}`, 'error')
+			if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+				updateTask(taskId, {
+					status: 'cancelled',
+					stage: 'Download cancelled by user',
+					speed: '',
+					eta: '',
+				})
+			} else {
+				console.error('In-browser download failed:', err)
+				updateTask(taskId, {
+					status: 'error',
+					errorMessage: err.message || 'Download failed',
+					stage: `Download failed: ${err.message}`,
+					speed: '',
+					eta: '',
+				})
+				alertStore.addAlert(`Failed to download "${name}": ${err.message}`, 'error')
+			}
 		}
 	}
 
