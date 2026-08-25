@@ -199,69 +199,76 @@ export const apiDownloadRequest = async (
 	onProgress = null,
 	signal = null
 ) => {
-	const { addAlert } = alertStore
-
 	const fullpath = `${API_BASE}${path}`
 
 	try {
-		return new Promise((resolve, reject) => {
-			const xhr = new XMLHttpRequest()
-			xhr.responseType = 'blob'
+		const headers = new Headers()
+		if (auth_token) {
+			headers.append('Authorization', auth_token)
+		}
 
-			if (signal) {
-				signal.addEventListener('abort', () => {
-					xhr.abort()
-					reject(new DOMException('Download aborted', 'AbortError'))
-				})
-			}
-
-			// Track download progress (response bytes received)
-			xhr.addEventListener('progress', (e) => {
-				if (onProgress && e.lengthComputable && e.total > 0) {
-					const percentComplete = Math.min(100, Math.round((e.loaded / e.total) * 100))
-					onProgress(percentComplete, e.loaded, e.total)
-				}
-			})
-
-			xhr.addEventListener('load', async () => {
-				if (xhr.status >= 200 && xhr.status < 300) {
-					const blob = xhr.response
-					if (!blob || blob.size === 0) {
-						const error = new Error('Download failed: Empty file received')
-						addAlert(error.message, 'error')
-						reject(error)
-						return
-					}
-					resolve(blob)
-				} else {
-					let errorMsg = `Download failed (HTTP ${xhr.status})`
-					try {
-						if (xhr.response instanceof Blob) {
-							const errorText = await xhr.response.text()
-							const json = JSON.parse(errorText)
-							if (json.error) errorMsg = json.error
-						}
-					} catch (_) {}
-					const error = new Error(errorMsg)
-					addAlert(error.message, 'error')
-					reject(error)
-				}
-			})
-
-			xhr.addEventListener('error', () => {
-				const error = new Error('Network error during download')
-				addAlert(error.message, 'error')
-				reject(error)
-			})
-
-			xhr.open('GET', fullpath)
-			if (auth_token) {
-				xhr.setRequestHeader('Authorization', auth_token)
-			}
-			xhr.send()
+		const response = await fetch(fullpath, {
+			method: 'GET',
+			headers,
+			signal,
 		})
+
+		if (!response.ok) {
+			let errorMsg = `Download failed (HTTP ${response.status})`
+			try {
+				const errorJson = await response.json()
+				if (errorJson && errorJson.error) {
+					errorMsg = errorJson.error
+				}
+			} catch (_) {
+				try {
+					const text = await response.text()
+					if (text) errorMsg = text
+				} catch (_) {}
+			}
+			throw new Error(errorMsg)
+		}
+
+		const contentLengthHeader = response.headers.get('content-length')
+		const totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0
+		const contentType = response.headers.get('content-type') || 'application/octet-stream'
+
+		// Stream reading with live progress
+		if (response.body && typeof response.body.getReader === 'function') {
+			const reader = response.body.getReader()
+			const chunks = []
+			let receivedBytes = 0
+
+			while (true) {
+				const { done, value } = await reader.read()
+				if (done) break
+
+				if (value && value.length > 0) {
+					chunks.push(value)
+					receivedBytes += value.length
+
+					if (onProgress) {
+						const percent = totalBytes > 0 ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100)) : 0
+						onProgress(percent, receivedBytes, totalBytes)
+					}
+				}
+			}
+
+			if (receivedBytes === 0) {
+				throw new Error('Empty file received from cluster')
+			}
+
+			return new Blob(chunks, { type: contentType })
+		}
+
+		// Fallback for browsers without stream readers
+		const blob = await response.blob()
+		if (!blob || blob.size === 0) {
+			throw new Error('Empty file received from cluster')
+		}
+		if (onProgress) onProgress(100, blob.size, blob.size)
+		return blob
 	} catch (err) {
-		addAlert(err.message, 'error')
 		throw err
 	}
 }
