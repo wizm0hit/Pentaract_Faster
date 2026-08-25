@@ -33,6 +33,7 @@ import FSListItem from '../../components/FSListItem'
 import Menu from '../../components/Menu'
 import CreateFolderDialog from '../../components/CreateFolderDialog'
 import { alertStore } from '../../components/AlertStack'
+import uploadManager from '../../common/uploadManager'
 import Access from '../../components/Access'
 import GrantAccess from '../../components/GrantAccess'
 
@@ -45,10 +46,6 @@ const Files = () => {
 	const [isGrantAccessButtonVisible, setIsGrantButtonAccessVisible] = createSignal(false)
 	const [isGrantAccessVisible, setIsGrantAccessVisible] = createSignal(false)
 	const [users, setUsers] = createSignal([])
-	const [uploadProgress, setUploadProgress] = createSignal(0)
-	const [isUploading, setIsUploading] = createSignal(false)
-	const [uploadingFileName, setUploadingFileName] = createSignal('')
-	const [uploadingStage, setUploadingStage] = createSignal('')
 	const [downloadProgress, setDownloadProgress] = createSignal(0)
 	const [isDownloading, setIsDownloading] = createSignal(false)
 	const [downloadingFileName, setDownloadingFileName] = createSignal('')
@@ -101,12 +98,22 @@ const Files = () => {
 		}
 	}
 
+	const handleUploadedEvent = (e) => {
+		if (e.detail?.storageId === params.id) {
+			fetchFSLayer()
+		}
+	}
+
 	onMount(() => {
 		Promise.all([fetchStorage(), fetchFSLayer(), fetchUsersWithAccess()]).then()
 		window.addEventListener('popstate', reload, false)
+		window.addEventListener('pentaract:file_uploaded', handleUploadedEvent, false)
 	})
 
-	onCleanup(() => window.removeEventListener('popstate', reload, false))
+	onCleanup(() => {
+		window.removeEventListener('popstate', reload, false)
+		window.removeEventListener('pentaract:file_uploaded', handleUploadedEvent, false)
+	})
 
 	useBeforeLeave(async (e) => {
 		if (e.to.startsWith(basePath)) {
@@ -147,36 +154,7 @@ const Files = () => {
 
 	const processFileUpload = async (file) => {
 		if (!file) return
-
-		setIsUploading(true)
-		setUploadingFileName(file.name)
-		setUploadingStage('Slicing into 5MB chunks & encrypting with AES-256-GCM...')
-		setUploadProgress(0)
-
-		try {
-			await API.files.uploadFile(
-				params.id,
-				params.path || '',
-				file,
-				(progress) => {
-					setUploadProgress(progress)
-					if (progress < 90) {
-						setUploadingStage('Streaming AES-256-GCM encrypted chunks...')
-					} else {
-						setUploadingStage('Validating SHA-256 integrity checksums...')
-					}
-				}
-			)
-			addAlert(`Encrypted & stored "${file.name}"`, 'success')
-			await fetchFSLayer()
-		} catch (err) {
-			console.error('Upload error:', err)
-		} finally {
-			setIsUploading(false)
-			setUploadProgress(0)
-			setUploadingFileName('')
-			setUploadingStage('')
-		}
+		await uploadManager.startUpload(params.id, params.path || '', file)
 	}
 
 	const uploadFile = async (event) => {
@@ -281,45 +259,6 @@ const Files = () => {
 					sx={{ backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 700, fontSize: 11 }}
 				/>
 			</Box>
-
-			{/* Upload Progress Banner */}
-			<Show when={isUploading()}>
-				<Paper
-					sx={{
-						p: 2.5,
-						mb: 3,
-						background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(16, 185, 129, 0.1) 100%)',
-						border: '1px solid rgba(99, 102, 241, 0.3)',
-						borderRadius: 2.5,
-						boxShadow: '0 4px 20px rgba(99, 102, 241, 0.2)',
-					}}
-				>
-					<Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-						<Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#f8fafc' }}>
-							Encrypting & Uploading: {uploadingFileName()}
-						</Typography>
-						<Typography variant="caption" sx={{ fontWeight: 700, color: '#818cf8', fontFamily: 'monospace' }}>
-							{Math.round(uploadProgress())}%
-						</Typography>
-					</Box>
-					<LinearProgress
-						variant="determinate"
-						value={uploadProgress()}
-						sx={{
-							height: 8,
-							borderRadius: 4,
-							backgroundColor: 'rgba(255, 255, 255, 0.1)',
-							'& .MuiLinearProgress-bar': {
-								borderRadius: 4,
-								background: 'linear-gradient(90deg, #6366f1 0%, #10b981 100%)',
-							},
-						}}
-					/>
-					<Typography variant="caption" sx={{ color: '#94a3b8', mt: 1, display: 'block', fontSize: 12 }}>
-						{uploadingStage()}
-					</Typography>
-				</Paper>
-			</Show>
 
 			{/* Download Progress Banner */}
 			<Show when={isDownloading()}>

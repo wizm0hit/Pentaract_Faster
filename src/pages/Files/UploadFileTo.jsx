@@ -14,14 +14,12 @@ import { Show, createSignal } from 'solid-js'
 
 import API from '../../api'
 import { alertStore } from '../../components/AlertStack'
+import uploadManager from '../../common/uploadManager'
 
 const UploadFileTo = () => {
 	const { addAlert } = alertStore
 	const navigate = useNavigate()
 	const params = useParams()
-	const [uploadProgress, setUploadProgress] = createSignal(0)
-	const [isUploading, setIsUploading] = createSignal(false)
-	const [uploadingFileName, setUploadingFileName] = createSignal('')
 
 	const navigateToFiles = () => {
 		navigate(`/storages/${params.id}/files`)
@@ -44,29 +42,8 @@ const UploadFileTo = () => {
 			return
 		}
 
-		setIsUploading(true)
-		setUploadingFileName(file.name)
-		setUploadProgress(0)
-
-		try {
-			await API.files.uploadFileTo(
-				params.id,
-				path,
-				file,
-				(progress) => {
-					setUploadProgress(progress)
-				}
-			)
-
-			addAlert(`Uploaded file to "${path}"`, 'success')
-			navigateToFiles()
-		} catch (err) {
-			console.error('Upload error:', err)
-		} finally {
-			setIsUploading(false)
-			setUploadProgress(0)
-			setUploadingFileName('')
-		}
+		navigateToFiles()
+		uploadManager.startUpload(params.id, path, file)
 	}
 
 	return (
@@ -85,44 +62,6 @@ const UploadFileTo = () => {
 			>
 				Back
 			</Button>
-
-			{/* Upload Progress Bar */}
-			<Show when={isUploading()}>
-				<Paper
-					elevation={3}
-					sx={{
-						p: 2,
-						background:
-							'linear-gradient(135deg, rgba(249, 233, 0, 0.1) 0%, rgba(13, 24, 33, 0.05) 100%)',
-						borderRadius: 2,
-					}}
-				>
-					<Box sx={{ mb: 1 }}>
-						<Typography variant="body2" color="text.secondary">
-							Uploading: {uploadingFileName()}
-						</Typography>
-					</Box>
-					<LinearProgress
-						variant="determinate"
-						value={uploadProgress()}
-						sx={{
-							height: 8,
-							borderRadius: 4,
-							backgroundColor: 'rgba(0, 0, 0, 0.1)',
-							'& .MuiLinearProgress-bar': {
-								borderRadius: 4,
-								background:
-									'linear-gradient(90deg, #F9E900 0%, #FFD700 100%)',
-							},
-						}}
-					/>
-					<Box sx={{ mt: 1 }}>
-						<Typography variant="caption" color="text.secondary">
-							{Math.round(uploadProgress())}%
-						</Typography>
-					</Box>
-				</Paper>
-			</Show>
 
 			<Card
 				elevation={3}

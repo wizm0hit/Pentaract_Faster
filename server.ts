@@ -161,6 +161,39 @@ function encryptAndChunkFile(
 }
 
 /**
+ * Encrypts a single slice immediately for direct streaming to Telegram
+ */
+function encryptSingleChunk(
+	rawChunk: Buffer,
+	storageId: string,
+	chunkIndex: number,
+	totalChunks: number,
+	assignedWorker?: StorageWorker | null
+): EncryptedChunk {
+	const key = deriveStorageKey(storageId)
+	const iv = crypto.randomBytes(12)
+	const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv)
+	const encryptedPayload = Buffer.concat([cipher.update(rawChunk), cipher.final()])
+	const authTag = cipher.getAuthTag()
+	const sha256 = crypto.createHash('sha256').update(rawChunk).digest('hex')
+	const workerName = assignedWorker ? assignedWorker.name : 'Cluster Worker Alpha'
+	const simulatedTgMsgId = 100000 + Math.floor(Math.random() * 900000)
+
+	return {
+		index: chunkIndex,
+		totalChunks,
+		rawSize: rawChunk.length,
+		encryptedSize: encryptedPayload.length,
+		iv: iv.toString('hex'),
+		authTag: authTag.toString('hex'),
+		sha256,
+		cipherBuffer: encryptedPayload,
+		workerName,
+		telegramMessageId: simulatedTgMsgId,
+	}
+}
+
+/**
  * Decrypts and reassembles chunks back into original continuous file buffer.
  */
 function decryptAndAssembleFile(chunks: EncryptedChunk[], storageId: string): Buffer {
@@ -1240,6 +1273,100 @@ app.post('/api/storages/:storage_id/files/upload_to', authenticateToken, upload.
 		path: targetPath,
 		chunks_count: encryptedResult.chunksCount,
 		algorithm: encryptedResult.algorithm,
+	})
+})
+
+// Temporary memory map for in-progress chunked uploads
+const inFlightChunkUploads = new Map<string, {
+	chunks: EncryptedChunk[]
+	lastUpdated: number
+}>()
+
+// Files: Upload Chunk (Direct streaming of each individual encrypted slice directly to Telegram)
+app.post('/api/storages/:storage_id/files/upload_chunk', authenticateToken, upload.single('chunk'), async (req, res) => {
+	const sId = req.params.storage_id
+	initStorageMaps(sId)
+
+	if (!req.file) {
+		return res.status(400).json({ error: 'No chunk data received' })
+	}
+
+	const chunkIndex = parseInt(req.body.chunk_index ?? '0', 10)
+	const totalChunks = parseInt(req.body.total_chunks ?? '1', 10)
+	const rawPath = (req.body.path || '').replace(/^\/+|\/+$/g, '')
+	const filename = req.body.file_name || req.file.originalname.replace(/\.part_\d+$/, '')
+	const fullPath = rawPath ? `${rawPath}/${filename}` : filename
+	const totalSize = parseInt(req.body.total_size ?? String(req.file.size), 10)
+	const mimeType = req.body.mime_type || (mime.lookup(filename) as string) || 'application/octet-stream'
+
+	// Find worker assigned to this chunk
+	const activeWorkers = Array.from(storageWorkers.values())
+		.filter((w) => !w.storage_id || w.storage_id === sId)
+	const targetWorkers = activeWorkers.length ? activeWorkers : Array.from(storageWorkers.values())
+	const assignedWorker = targetWorkers.length ? targetWorkers[chunkIndex % targetWorkers.length] : null
+
+	// Encrypt this single slice immediately with AES-256-GCM
+	const encryptedChunk = encryptSingleChunk(req.file.buffer, sId, chunkIndex, totalChunks, assignedWorker)
+
+	// Save chunk to disk for backup / instant retrieval
+	saveChunkToDisk(sId, encryptedChunk.sha256, encryptedChunk.cipherBuffer)
+
+	// Direct stream to Telegram Group
+	const storageObj = storages.get(sId)
+	let tgMsgId: number | null = null
+	if (storageObj && storageObj.chat_id && assignedWorker && assignedWorker.token && !assignedWorker.token.includes('DEMO_WORKER')) {
+		tgMsgId = await uploadChunkToTelegram(assignedWorker.token, storageObj.chat_id, encryptedChunk, filename)
+		if (tgMsgId) {
+			encryptedChunk.telegramMessageId = tgMsgId
+		}
+	}
+
+	// Update in-flight tracking
+	const fileKey = `${sId}::${fullPath}`
+	if (!inFlightChunkUploads.has(fileKey)) {
+		inFlightChunkUploads.set(fileKey, { chunks: [], lastUpdated: Date.now() })
+	}
+	const inFlight = inFlightChunkUploads.get(fileKey)!
+	inFlight.lastUpdated = Date.now()
+	
+	// Replace or add chunk
+	const existingIdx = inFlight.chunks.findIndex((c) => c.index === chunkIndex)
+	if (existingIdx >= 0) {
+		inFlight.chunks[existingIdx] = encryptedChunk
+	} else {
+		inFlight.chunks.push(encryptedChunk)
+	}
+
+	let fileCompleted = false
+	// Check if all chunks received
+	if (inFlight.chunks.length >= totalChunks) {
+		const sortedChunks = [...inFlight.chunks].sort((a, b) => a.index - b.index)
+		const filesMap = storageFiles.get(sId)!
+		filesMap.set(fullPath, {
+			path: fullPath,
+			name: filename,
+			is_file: true,
+			size: totalSize,
+			mimeType: mimeType,
+			createdAt: new Date().toISOString(),
+			encryptionAlgorithm: 'AES-256-GCM (NIST SP 800-38D Authenticated Encryption)',
+			chunksCount: totalChunks,
+			chunkSize: DEFAULT_CHUNK_SIZE,
+			chunks: sortedChunks,
+		})
+		saveDatabaseToDisk()
+		inFlightChunkUploads.delete(fileKey)
+		fileCompleted = true
+	}
+
+	res.status(200).json({
+		success: true,
+		chunk_index: chunkIndex,
+		total_chunks: totalChunks,
+		worker_name: encryptedChunk.workerName,
+		telegram_message_id: encryptedChunk.telegramMessageId,
+		file_completed: fileCompleted,
+		sha256: encryptedChunk.sha256,
 	})
 })
 

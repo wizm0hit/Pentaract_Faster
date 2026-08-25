@@ -273,6 +273,37 @@ const createFolder = async (storage_id, path, folderName) => {
 
 /**
  * @param {string} storage_id
+ * @param {Object} chunkData
+ * @param {Blob} chunkData.chunk
+ * @param {number} chunkData.chunk_index
+ * @param {number} chunkData.total_chunks
+ * @param {string} chunkData.path
+ * @param {string} chunkData.file_name
+ * @param {number} chunkData.total_size
+ * @param {string} chunkData.mime_type
+ * @param {(progress: number) => void} onProgress
+ * @returns {Promise<any>}
+ */
+const uploadChunk = async (storage_id, chunkData, onProgress = null) => {
+	const form = new FormData()
+	form.append('chunk', chunkData.chunk, `${chunkData.file_name}.part_${chunkData.chunk_index}`)
+	form.append('chunk_index', String(chunkData.chunk_index))
+	form.append('total_chunks', String(chunkData.total_chunks))
+	form.append('path', chunkData.path || '')
+	form.append('file_name', chunkData.file_name)
+	form.append('total_size', String(chunkData.total_size))
+	form.append('mime_type', chunkData.mime_type || 'application/octet-stream')
+
+	return await apiMultipartRequest(
+		`/storages/${storage_id}/files/upload_chunk`,
+		getAuthToken(),
+		form,
+		onProgress
+	)
+}
+
+/**
+ * @param {string} storage_id
  * @param {string} path
  * @param {any} file
  * @param {(progress: number) => void} onProgress
@@ -418,6 +449,7 @@ const API = {
 	},
 	files: {
 		createFolder,
+		uploadChunk,
 		uploadFile,
 		uploadFileTo,
 		getFSLayer,
