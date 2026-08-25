@@ -194,16 +194,58 @@ function decryptAndAssembleFile(chunks: EncryptedChunk[], storageId: string): Bu
 // -------------------------------------------------------------
 import fs from 'fs'
 import path from 'path'
+import pg from 'pg'
 
-const DATA_DIR = path.join(process.cwd(), 'data')
+const { Pool } = pg
+
+// Support Render persistent disk mounts (e.g. /var/data or custom DATA_DIR)
+const DATA_DIR = process.env.DATA_DIR || process.env.PERSISTENT_STORAGE_PATH || (fs.existsSync('/var/data') ? '/var/data' : path.join(process.cwd(), 'data'))
 const CHUNKS_DIR = path.join(DATA_DIR, 'chunks')
 const DB_FILE = path.join(DATA_DIR, 'pentaract_db.json')
 
 if (!fs.existsSync(DATA_DIR)) {
-	fs.mkdirSync(DATA_DIR, { recursive: true })
+	try {
+		fs.mkdirSync(DATA_DIR, { recursive: true })
+	} catch (e: any) {
+		console.warn(`[Storage Warning] Could not create DATA_DIR ${DATA_DIR}: ${e.message}`)
+	}
 }
 if (!fs.existsSync(CHUNKS_DIR)) {
-	fs.mkdirSync(CHUNKS_DIR, { recursive: true })
+	try {
+		fs.mkdirSync(CHUNKS_DIR, { recursive: true })
+	} catch (e: any) {
+		console.warn(`[Storage Warning] Could not create CHUNKS_DIR ${CHUNKS_DIR}: ${e.message}`)
+	}
+}
+
+// PostgreSQL Persistent Database Pool (for Render, Supabase, Neon, AWS RDS, etc.)
+let pgPool: pg.Pool | null = null
+const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRESQL_URL
+
+if (databaseUrl || (process.env.DATABASE_HOST && process.env.DATABASE_NAME)) {
+	try {
+		console.log('[Database] Initializing PostgreSQL connection pool...')
+		pgPool = new Pool({
+			connectionString: databaseUrl,
+			host: process.env.DATABASE_HOST,
+			port: process.env.DATABASE_PORT ? parseInt(process.env.DATABASE_PORT) : 5432,
+			user: process.env.DATABASE_USER,
+			password: process.env.DATABASE_PASSWORD,
+			database: process.env.DATABASE_NAME,
+			ssl: databaseUrl && !databaseUrl.includes('localhost') && !databaseUrl.includes('127.0.0.1') ? { rejectUnauthorized: false } : undefined,
+			max: 10,
+			idleTimeoutMillis: 30000,
+			connectionTimeoutMillis: 10000,
+		})
+
+		pgPool.on('error', (err) => {
+			console.error('[PostgreSQL Pool Error]', err.message)
+		})
+	} catch (e: any) {
+		console.warn('[PostgreSQL Initialization Error]', e.message)
+	}
+} else {
+	console.log(`[Database] Running on persistent local storage at: ${DATA_DIR}`)
 }
 
 // Secure PBKDF2 Password Hashing
@@ -297,201 +339,248 @@ function loadChunkFromDisk(storageId: string, chunkSha: string): Buffer | null {
 	return null
 }
 
+function exportStateJson(): any {
+	return {
+		users: Array.from(users.entries()),
+		storages: Array.from(storages.entries()),
+		storageWorkers: Array.from(storageWorkers.entries()),
+		accessRules: Array.from(accessRules.entries()).map(([sId, ruleMap]) => [sId, Array.from(ruleMap.entries())]),
+		storageFolders: Array.from(storageFolders.entries()).map(([sId, folderSet]) => [sId, Array.from(folderSet)]),
+		storageFiles: Array.from(storageFiles.entries()).map(([sId, fileMap]) => [
+			sId,
+			Array.from(fileMap.entries()).map(([filePath, file]) => {
+				return [
+					filePath,
+					{
+						...file,
+						chunks: (file.chunks || []).map((c) => ({
+							index: c.index,
+							totalChunks: c.totalChunks,
+							rawSize: c.rawSize,
+							encryptedSize: c.encryptedSize,
+							iv: c.iv,
+							authTag: c.authTag,
+							sha256: c.sha256,
+							workerName: c.workerName,
+							telegramMessageId: c.telegramMessageId,
+						})),
+					},
+				]
+			}),
+		]),
+	}
+}
+
+function applyStateJson(data: any) {
+	const normalizedSuperEmail = SUPERUSER_EMAIL.trim().toLowerCase()
+
+	// Restore users
+	users.clear()
+	if (Array.isArray(data.users)) {
+		for (const [email, user] of data.users) {
+			const normEmail = (email || user.email).trim().toLowerCase()
+			if (user.passwordHash && user.passwordHash !== 'placeholder') {
+				users.set(normEmail, {
+					...user,
+					email: normEmail,
+					role: user.role || (normEmail === normalizedSuperEmail ? 'admin' : 'user'),
+					createdAt: user.createdAt || new Date().toISOString(),
+				})
+			}
+		}
+	}
+
+	// Ensure superuser exists and is an admin
+	const existingSuper = users.get(normalizedSuperEmail)
+	if (!existingSuper) {
+		users.set(normalizedSuperEmail, {
+			id: '00000000-0000-0000-0000-000000000001',
+			email: normalizedSuperEmail,
+			passwordHash: hashPassword(SUPERUSER_PASS),
+			role: 'admin',
+			createdAt: new Date().toISOString(),
+		})
+	} else {
+		existingSuper.role = 'admin'
+		if (!existingSuper.passwordHash.includes(':')) {
+			existingSuper.passwordHash = hashPassword(SUPERUSER_PASS)
+		}
+	}
+
+	// Restore storages
+	storages.clear()
+	if (Array.isArray(data.storages)) {
+		for (const [id, storage] of data.storages) {
+			storages.set(id, storage)
+			initStorageMaps(id)
+		}
+	}
+
+	// Restore workers
+	storageWorkers.clear()
+	if (Array.isArray(data.storageWorkers)) {
+		for (const [id, worker] of data.storageWorkers) {
+			storageWorkers.set(id, worker)
+		}
+	}
+	// If TELEGRAM_BOT_TOKEN is present in env and not in DB, add it
+	if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN.includes('DEMO_WORKER')) {
+		const hasToken = Array.from(storageWorkers.values()).some((w) => w.token === process.env.TELEGRAM_BOT_TOKEN)
+		if (!hasToken) {
+			const botWorker: StorageWorker = {
+				id: uuidv4(),
+				name: 'Primary Telegram Worker',
+				token: process.env.TELEGRAM_BOT_TOKEN.trim(),
+				storage_id: null,
+				ownerId: '00000000-0000-0000-0000-000000000001',
+				status: 'active',
+				lastPing: new Date().toISOString(),
+			}
+			storageWorkers.set(botWorker.id, botWorker)
+		}
+	}
+
+	// Restore access rules
+	accessRules.clear()
+	if (Array.isArray(data.accessRules)) {
+		for (const [sId, rules] of data.accessRules) {
+			const ruleMap = new Map<string, AccessRule>()
+			for (const [uId, rule] of rules) {
+				ruleMap.set(uId, rule)
+			}
+			accessRules.set(sId, ruleMap)
+		}
+	}
+
+	// Restore folders
+	storageFolders.clear()
+	if (Array.isArray(data.storageFolders)) {
+		for (const [sId, folders] of data.storageFolders) {
+			storageFolders.set(sId, new Set(folders))
+		}
+	}
+
+	// Restore files
+	storageFiles.clear()
+	if (Array.isArray(data.storageFiles)) {
+		for (const [sId, filesList] of data.storageFiles) {
+			const fileMap = new Map<string, StoredFile>()
+			for (const [filePath, file] of filesList) {
+				const restoredChunks: EncryptedChunk[] = (file.chunks || []).map((c: any) => {
+					const diskBuf = loadChunkFromDisk(sId, c.sha256)
+					return {
+						...c,
+						cipherBuffer: diskBuf || Buffer.alloc(c.encryptedSize || 0),
+					}
+				})
+
+				fileMap.set(filePath, {
+					...file,
+					chunks: restoredChunks,
+				})
+			}
+			storageFiles.set(sId, fileMap)
+		}
+	}
+}
+
 function saveDatabaseToDisk() {
 	try {
-		const data = {
-			users: Array.from(users.entries()),
-			storages: Array.from(storages.entries()),
-			storageWorkers: Array.from(storageWorkers.entries()),
-			accessRules: Array.from(accessRules.entries()).map(([sId, ruleMap]) => [sId, Array.from(ruleMap.entries())]),
-			storageFolders: Array.from(storageFolders.entries()).map(([sId, folderSet]) => [sId, Array.from(folderSet)]),
-			storageFiles: Array.from(storageFiles.entries()).map(([sId, fileMap]) => [
-				sId,
-				Array.from(fileMap.entries()).map(([filePath, file]) => {
-					return [
-						filePath,
-						{
-							...file,
-							chunks: (file.chunks || []).map((c) => ({
-								index: c.index,
-								totalChunks: c.totalChunks,
-								rawSize: c.rawSize,
-								encryptedSize: c.encryptedSize,
-								iv: c.iv,
-								authTag: c.authTag,
-								sha256: c.sha256,
-								workerName: c.workerName,
-								telegramMessageId: c.telegramMessageId,
-							})),
-						},
-					]
-				}),
-			]),
-		}
+		const data = exportStateJson()
+		const jsonString = JSON.stringify(data, null, 2)
+		fs.writeFileSync(DB_FILE, jsonString, 'utf-8')
 
-		fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8')
+		// If PostgreSQL is attached, persist to PostgreSQL asynchronously
+		if (pgPool) {
+			pgPool
+				.query(
+					`INSERT INTO pentaract_state (id, data, updated_at)
+					 VALUES ('main', $1::jsonb, CURRENT_TIMESTAMP)
+					 ON CONFLICT (id) DO UPDATE SET data = $1::jsonb, updated_at = CURRENT_TIMESTAMP`,
+					[jsonString]
+				)
+				.catch((err) => {
+					console.error('[PostgreSQL Sync Error]', err.message)
+				})
+		}
 	} catch (err: any) {
 		console.error('[Database Persistence Error]', err.message)
 	}
 }
 
-function loadDatabaseFromDisk() {
+async function initializeDatabase() {
+	const normalizedSuperEmail = SUPERUSER_EMAIL.trim().toLowerCase()
+
+	// 1. Try to load from PostgreSQL first if available
+	if (pgPool) {
+		try {
+			console.log('[Database] Connecting to PostgreSQL database...')
+			await pgPool.query(`
+				CREATE TABLE IF NOT EXISTS pentaract_state (
+					id TEXT PRIMARY KEY,
+					data JSONB NOT NULL,
+					updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+				);
+			`)
+
+			const res = await pgPool.query(`SELECT data FROM pentaract_state WHERE id = 'main' LIMIT 1;`)
+			if (res.rows && res.rows.length > 0 && res.rows[0].data) {
+				console.log('[Database] Successfully loaded state from PostgreSQL database.')
+				applyStateJson(res.rows[0].data)
+				saveDatabaseToDisk()
+				return
+			} else {
+				console.log('[Database] PostgreSQL state table is empty. Checking local disk to migrate existing state...')
+			}
+		} catch (pgErr: any) {
+			console.error('[PostgreSQL Connect/Query Failed]', pgErr.message)
+		}
+	}
+
+	// 2. Load from local DB_FILE if available
 	try {
-		const normalizedSuperEmail = SUPERUSER_EMAIL.trim().toLowerCase()
-
-		if (!fs.existsSync(DB_FILE)) {
-			// No saved database yet, create superuser account with secure hash
-			const defaultUserId = '00000000-0000-0000-0000-000000000001'
-			const defaultUser: User = {
-				id: defaultUserId,
-				email: normalizedSuperEmail,
-				passwordHash: hashPassword(SUPERUSER_PASS),
-				role: 'admin',
-				createdAt: new Date().toISOString(),
-			}
-			users.set(normalizedSuperEmail, defaultUser)
-
-			// If user set TELEGRAM_BOT_TOKEN in env, register as first worker
-			if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN.includes('DEMO_WORKER')) {
-				const botWorker: StorageWorker = {
-					id: '00000000-0000-0000-0000-000000000003',
-					name: 'Primary Telegram Worker',
-					token: process.env.TELEGRAM_BOT_TOKEN.trim(),
-					storage_id: null,
-					ownerId: defaultUserId,
-					status: 'active',
-					lastPing: new Date().toISOString(),
-				}
-				storageWorkers.set(botWorker.id, botWorker)
-			}
-
+		if (fs.existsSync(DB_FILE)) {
+			const raw = fs.readFileSync(DB_FILE, 'utf-8')
+			const data = JSON.parse(raw)
+			applyStateJson(data)
+			console.log(`[Database Loaded from Disk] ${storages.size} vault(s), ${storageWorkers.size} worker(s), ${users.size} user(s)`)
 			saveDatabaseToDisk()
 			return
 		}
-
-		const raw = fs.readFileSync(DB_FILE, 'utf-8')
-		const data = JSON.parse(raw)
-
-		// Restore users
-		users.clear()
-		if (Array.isArray(data.users)) {
-			for (const [email, user] of data.users) {
-				const normEmail = (email || user.email).trim().toLowerCase()
-				// Filter out invalid placeholder accounts
-				if (user.passwordHash && user.passwordHash !== 'placeholder') {
-					users.set(normEmail, {
-						...user,
-						email: normEmail,
-						role: user.role || (normEmail === normalizedSuperEmail ? 'admin' : 'user'),
-						createdAt: user.createdAt || new Date().toISOString(),
-					})
-				}
-			}
-		}
-
-		// Ensure superuser exists and is an admin
-		const existingSuper = users.get(normalizedSuperEmail)
-		if (!existingSuper) {
-			users.set(normalizedSuperEmail, {
-				id: '00000000-0000-0000-0000-000000000001',
-				email: normalizedSuperEmail,
-				passwordHash: hashPassword(SUPERUSER_PASS),
-				role: 'admin',
-				createdAt: new Date().toISOString(),
-			})
-		} else {
-			existingSuper.role = 'admin'
-			// If superuser hash was plain text or not formatted with salt, re-hash it
-			if (!existingSuper.passwordHash.includes(':')) {
-				existingSuper.passwordHash = hashPassword(SUPERUSER_PASS)
-			}
-		}
-
-		// Restore storages
-		storages.clear()
-		if (Array.isArray(data.storages)) {
-			for (const [id, storage] of data.storages) {
-				storages.set(id, storage)
-				initStorageMaps(id)
-			}
-		}
-
-		// Restore workers
-		storageWorkers.clear()
-		if (Array.isArray(data.storageWorkers)) {
-			for (const [id, worker] of data.storageWorkers) {
-				storageWorkers.set(id, worker)
-			}
-		}
-		// If TELEGRAM_BOT_TOKEN is present in env and not in DB, add it
-		if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN.includes('DEMO_WORKER')) {
-			const hasToken = Array.from(storageWorkers.values()).some((w) => w.token === process.env.TELEGRAM_BOT_TOKEN)
-			if (!hasToken) {
-				const botWorker: StorageWorker = {
-					id: uuidv4(),
-					name: 'Primary Telegram Worker',
-					token: process.env.TELEGRAM_BOT_TOKEN.trim(),
-					storage_id: null,
-					ownerId: '00000000-0000-0000-0000-000000000001',
-					status: 'active',
-					lastPing: new Date().toISOString(),
-				}
-				storageWorkers.set(botWorker.id, botWorker)
-			}
-		}
-
-		// Restore access rules
-		accessRules.clear()
-		if (Array.isArray(data.accessRules)) {
-			for (const [sId, rules] of data.accessRules) {
-				const ruleMap = new Map<string, AccessRule>()
-				for (const [uId, rule] of rules) {
-					ruleMap.set(uId, rule)
-				}
-				accessRules.set(sId, ruleMap)
-			}
-		}
-
-		// Restore folders
-		storageFolders.clear()
-		if (Array.isArray(data.storageFolders)) {
-			for (const [sId, folders] of data.storageFolders) {
-				storageFolders.set(sId, new Set(folders))
-			}
-		}
-
-		// Restore files
-		storageFiles.clear()
-		if (Array.isArray(data.storageFiles)) {
-			for (const [sId, filesList] of data.storageFiles) {
-				const fileMap = new Map<string, StoredFile>()
-				for (const [filePath, file] of filesList) {
-					const restoredChunks: EncryptedChunk[] = file.chunks.map((c: any) => {
-						const diskBuf = loadChunkFromDisk(sId, c.sha256)
-						return {
-							...c,
-							cipherBuffer: diskBuf || Buffer.alloc(c.encryptedSize),
-						}
-					})
-
-					fileMap.set(filePath, {
-						...file,
-						chunks: restoredChunks,
-					})
-				}
-				storageFiles.set(sId, fileMap)
-			}
-		}
-
-		saveDatabaseToDisk()
-		console.log(`[Database Loaded] ${storages.size} vault(s), ${storageWorkers.size} worker(s), ${users.size} authenticated user(s)`)
 	} catch (err: any) {
-		console.error('[Database Load Error]', err.message)
+		console.error('[Database Disk Load Error]', err.message)
 	}
+
+	// 3. First-time boot initialization
+	console.log('[Database] Creating initial superuser account and default state...')
+	const defaultUserId = '00000000-0000-0000-0000-000000000001'
+	const defaultUser: User = {
+		id: defaultUserId,
+		email: normalizedSuperEmail,
+		passwordHash: hashPassword(SUPERUSER_PASS),
+		role: 'admin',
+		createdAt: new Date().toISOString(),
+	}
+	users.set(normalizedSuperEmail, defaultUser)
+
+	if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN.includes('DEMO_WORKER')) {
+		const botWorker: StorageWorker = {
+			id: '00000000-0000-0000-0000-000000000003',
+			name: 'Primary Telegram Worker',
+			token: process.env.TELEGRAM_BOT_TOKEN.trim(),
+			storage_id: null,
+			ownerId: defaultUserId,
+			status: 'active',
+			lastPing: new Date().toISOString(),
+		}
+		storageWorkers.set(botWorker.id, botWorker)
+	}
+
+	saveDatabaseToDisk()
 }
 
-// Load database immediately on server startup
-loadDatabaseFromDisk()
+// Initialize database immediately on server startup
+initializeDatabase().catch((e) => console.error('[Database Init Failed]', e))
 
 // Helper Auth Middleware - STRICT validation
 const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
@@ -1376,6 +1465,54 @@ app.post('/api/storages/:storage_id/files/delete', authenticateToken, (req, res)
 
 	const { deletedCount } = executeFileDeletion(sId, targetPath)
 	res.status(200).json({ message: 'Deleted successfully', deletedCount, path: targetPath })
+})
+
+// -------------------------------------------------------------
+// System, Render & Database Management APIs
+// -------------------------------------------------------------
+app.get('/api/system/status', (req, res) => {
+	res.json({
+		status: 'online',
+		storageBackend: pgPool ? 'PostgreSQL (Persistent Cloud Database)' : 'Local Disk',
+		isPostgres: Boolean(pgPool),
+		dataDir: DATA_DIR,
+		usersCount: users.size,
+		storagesCount: storages.size,
+		workersCount: storageWorkers.size,
+		renderDiskActive: fs.existsSync('/var/data') || Boolean(process.env.DATA_DIR),
+		postgresConfigured: Boolean(databaseUrl),
+	})
+})
+
+app.get('/api/system/backup', authenticateToken, (req, res) => {
+	const user = (req as any).user
+	if (user.role !== 'admin') {
+		return res.status(403).json({ error: 'Administrator privileges required for system backups' })
+	}
+	const backupData = exportStateJson()
+	res.setHeader('Content-Type', 'application/json')
+	res.setHeader('Content-Disposition', `attachment; filename="pentaract-backup-${new Date().toISOString().split('T')[0]}.json"`)
+	res.json(backupData)
+})
+
+app.post('/api/system/restore', authenticateToken, (req, res) => {
+	const user = (req as any).user
+	if (user.role !== 'admin') {
+		return res.status(403).json({ error: 'Administrator privileges required for system restore' })
+	}
+	const backupData = req.body
+	if (!backupData || (!backupData.users && !backupData.storages && !backupData.storageWorkers)) {
+		return res.status(400).json({ error: 'Invalid backup file format' })
+	}
+
+	applyStateJson(backupData)
+	saveDatabaseToDisk()
+	res.json({
+		message: 'System state restored successfully',
+		usersCount: users.size,
+		storagesCount: storages.size,
+		workersCount: storageWorkers.size,
+	})
 })
 
 // -------------------------------------------------------------
