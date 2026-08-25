@@ -2,7 +2,44 @@ import { createRoot, createSignal } from 'solid-js'
 import API from '../api'
 import { alertStore } from '../components/AlertStack'
 
-const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB per slice
+/**
+ * Calculates optimal chunk size based on file size:
+ * - <= 50MB: 5MB chunks
+ * - 50MB to 500MB: 10MB chunks
+ * - > 500MB: 16MB chunks (efficient for multi-GB uploads up to Telegram's 50MB limit)
+ */
+export function calculateOptimalChunkSize(fileSize) {
+	if (fileSize > 500 * 1024 * 1024) {
+		return 16 * 1024 * 1024 // 16 MB
+	} else if (fileSize > 50 * 1024 * 1024) {
+		return 10 * 1024 * 1024 // 10 MB
+	}
+	return 5 * 1024 * 1024 // 5 MB
+}
+
+/**
+ * Format bytes to readable speed string
+ */
+function formatSpeed(bytesPerSec) {
+	if (!bytesPerSec || bytesPerSec <= 0) return ''
+	if (bytesPerSec > 1024 * 1024) {
+		return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`
+	}
+	return `${(bytesPerSec / 1024).toFixed(0)} KB/s`
+}
+
+/**
+ * Format remaining time in seconds to human readable string
+ */
+function formatEta(seconds) {
+	if (!seconds || seconds <= 0 || !isFinite(seconds)) return ''
+	if (seconds < 60) {
+		return `${Math.round(seconds)}s left`
+	}
+	const mins = Math.floor(seconds / 60)
+	const secs = Math.round(seconds % 60)
+	return `${mins}m ${secs}s left`
+}
 
 /**
  * @typedef {Object} UploadTask
@@ -21,6 +58,8 @@ const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB per slice
  * @property {number[]} telegramMessageIds
  * @property {number} startedAt
  * @property {number} [completedAt]
+ * @property {string} [speed]
+ * @property {string} [eta]
  * @property {AbortController} [abortController]
  */
 
@@ -42,11 +81,33 @@ export const uploadManager = createRoot(() => {
 		)
 	}
 
+	const uploadChunkWithRetry = async (storageId, chunkData, onProgress, maxRetries = 5, abortSignal, onRetry) => {
+		for (let attempt = 1; attempt <= maxRetries; attempt++) {
+			if (abortSignal?.aborted) {
+				throw new Error('Upload cancelled by user')
+			}
+			try {
+				return await API.files.uploadChunk(storageId, chunkData, onProgress, true)
+			} catch (err) {
+				if (abortSignal?.aborted) throw err
+				if (attempt === maxRetries) {
+					throw new Error(`Slice ${chunkData.chunk_index + 1}/${chunkData.total_chunks} failed after ${maxRetries} attempts: ${err.message}`)
+				}
+				const backoffDelay = Math.min(1000 * Math.pow(1.8, attempt) + Math.random() * 500, 10000)
+				if (onRetry) {
+					onRetry(attempt, maxRetries, backoffDelay, err.message)
+				}
+				await new Promise((r) => setTimeout(r, backoffDelay))
+			}
+		}
+	}
+
 	const startUpload = async (storageId, targetPath, file) => {
 		if (!file) return
 
 		const taskId = 'up_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now()
-		const totalChunks = Math.ceil(file.size / CHUNK_SIZE) || 1
+		const chunkSize = calculateOptimalChunkSize(file.size)
+		const totalChunks = Math.ceil(file.size / chunkSize) || 1
 		const abortController = new AbortController()
 
 		const initialTask = {
@@ -59,12 +120,14 @@ export const uploadManager = createRoot(() => {
 			currentChunk: 0,
 			totalChunks,
 			stage: totalChunks > 1 
-				? `Slicing into ${totalChunks} chunks & connecting to Telegram...`
+				? `Slicing into ${totalChunks} encrypted slices & streaming to Telegram...`
 				: 'Encrypting with AES-256-GCM & streaming to Telegram...',
 			status: 'uploading',
 			workerNames: [],
 			telegramMessageIds: [],
 			startedAt: Date.now(),
+			speed: '',
+			eta: '',
 			abortController,
 		}
 
@@ -72,24 +135,28 @@ export const uploadManager = createRoot(() => {
 		setIsDockOpen(true)
 		setIsMinimized(false)
 
+		let bytesTransferred = 0
+		const startTime = Date.now()
+
 		try {
-			// Stream chunk-by-chunk directly to Telegram group
+			// Stream slice-by-slice directly to Telegram group
 			for (let i = 0; i < totalChunks; i++) {
 				if (abortController.signal.aborted) {
 					throw new Error('Upload cancelled by user')
 				}
 
-				const start = i * CHUNK_SIZE
-				const end = Math.min(start + CHUNK_SIZE, file.size)
+				const start = i * chunkSize
+				const end = Math.min(start + chunkSize, file.size)
+				const currentChunkBytes = end - start
 				const chunkBlob = file.slice(start, end)
 
 				updateTask(taskId, (t) => ({
 					...t,
 					currentChunk: i + 1,
-					stage: `Direct streaming chunk ${i + 1}/${totalChunks} to Telegram group...`,
+					stage: `Streaming slice ${i + 1}/${totalChunks} directly to Telegram group...`,
 				}))
 
-				const response = await API.files.uploadChunk(
+				const response = await uploadChunkWithRetry(
 					storageId,
 					{
 						chunk: chunkBlob,
@@ -101,11 +168,32 @@ export const uploadManager = createRoot(() => {
 						mime_type: file.type || 'application/octet-stream',
 					},
 					(chunkPct) => {
-						const overall = Math.round(((i + (chunkPct / 100)) / totalChunks) * 100)
-						updateTask(taskId, { progress: Math.min(99, overall) })
+						const currentSliceDone = (chunkPct / 100) * currentChunkBytes
+						const totalDone = bytesTransferred + currentSliceDone
+						const overall = Math.round((totalDone / file.size) * 100)
+
+						const elapsedSec = (Date.now() - startTime) / 1000
+						const speedBps = elapsedSec > 0 ? totalDone / elapsedSec : 0
+						const remainingBytes = file.size - totalDone
+						const etaSec = speedBps > 0 ? remainingBytes / speedBps : 0
+
+						updateTask(taskId, {
+							progress: Math.min(99, Math.max(0, overall)),
+							speed: formatSpeed(speedBps),
+							eta: formatEta(etaSec),
+						})
+					},
+					5,
+					abortController.signal,
+					(attempt, maxRetries, delayMs, errMsg) => {
+						const waitSec = Math.round(delayMs / 1000)
+						updateTask(taskId, {
+							stage: `Retrying slice ${i + 1}/${totalChunks} in ${waitSec}s (attempt ${attempt}/${maxRetries}): ${errMsg}`,
+						})
 					}
 				)
 
+				bytesTransferred += currentChunkBytes
 				const workerName = response?.worker_name || 'Telegram Worker'
 				const tgMsgId = response?.telegram_message_id
 
@@ -114,14 +202,21 @@ export const uploadManager = createRoot(() => {
 					const updatedTgIds = tgMsgId ? [...t.telegramMessageIds, tgMsgId] : t.telegramMessageIds
 					const newProgress = Math.round(((i + 1) / totalChunks) * 100)
 
+					const elapsedSec = (Date.now() - startTime) / 1000
+					const speedBps = elapsedSec > 0 ? bytesTransferred / elapsedSec : 0
+					const remainingBytes = file.size - bytesTransferred
+					const etaSec = speedBps > 0 ? remainingBytes / speedBps : 0
+
 					return {
 						...t,
 						progress: newProgress,
 						workerNames: updatedWorkers,
 						telegramMessageIds: updatedTgIds,
+						speed: formatSpeed(speedBps),
+						eta: formatEta(etaSec),
 						stage: i + 1 === totalChunks
-							? 'Uploaded all chunks directly to Telegram group!'
-							: `Chunk ${i + 1}/${totalChunks} posted to Telegram (${workerName})`,
+							? 'All slices encrypted & streamed to Telegram group!'
+							: `Slice ${i + 1}/${totalChunks} posted to Telegram (${workerName})`,
 					}
 				})
 			}
@@ -131,6 +226,8 @@ export const uploadManager = createRoot(() => {
 				status: 'completed',
 				progress: 100,
 				completedAt: Date.now(),
+				speed: '',
+				eta: '',
 				stage: 'Encrypted with AES-256-GCM & stored in Telegram group',
 			})
 
@@ -147,6 +244,8 @@ export const uploadManager = createRoot(() => {
 				updateTask(taskId, {
 					status: 'cancelled',
 					stage: 'Upload cancelled',
+					speed: '',
+					eta: '',
 				})
 			} else {
 				console.error('Direct Telegram upload failed:', err)
@@ -154,6 +253,8 @@ export const uploadManager = createRoot(() => {
 					status: 'error',
 					errorMessage: err.message || 'Direct upload to Telegram failed',
 					stage: `Upload failed: ${err.message || 'Network error'}`,
+					speed: '',
+					eta: '',
 				})
 				alertStore.addAlert(`Failed to upload "${file.name}": ${err.message}`, 'error')
 			}

@@ -93,29 +93,31 @@ const apiRequest = async (
  * @param {string | null | undefined} auth_token
  * @param {FormData} form
  * @param {(progress: number) => void} onProgress
+ * @param {boolean} silent
  * @returns
  */
 export const apiMultipartRequest = async (
 	path,
 	auth_token,
 	form,
-	onProgress = null
+	onProgress = null,
+	silent = false
 ) => {
 	const { addAlert } = alertStore
 
 	const fullpath = `${API_BASE}${path}`
 
 	const headers = new Headers()
-	// headers.append("Content-Type", "multipart/form-data");
 	if (auth_token) {
 		headers.append('Authorization', auth_token)
 	}
 
 	try {
-		// Use XMLHttpRequest for progress tracking
+		// Use XMLHttpRequest for progress tracking and timeout control
 		if (onProgress) {
 			return new Promise((resolve, reject) => {
 				const xhr = new XMLHttpRequest()
+				xhr.timeout = 90000 // 90 second timeout per chunk
 
 				xhr.upload.addEventListener('progress', (e) => {
 					if (e.lengthComputable) {
@@ -137,15 +139,21 @@ export const apiMultipartRequest = async (
 							resolve(null)
 						}
 					} else {
-						const error = new Error(xhr.responseText || 'Upload failed')
-						addAlert(error.message, 'error')
+						const error = new Error(xhr.responseText || `Upload failed with HTTP ${xhr.status}`)
+						if (!silent) addAlert(error.message, 'error')
 						reject(error)
 					}
 				})
 
 				xhr.addEventListener('error', () => {
-					const error = new Error('Network error')
-					addAlert(error.message, 'error')
+					const error = new Error('Network connection error')
+					if (!silent) addAlert(error.message, 'error')
+					reject(error)
+				})
+
+				xhr.addEventListener('timeout', () => {
+					const error = new Error('Chunk upload timed out after 90s')
+					if (!silent) addAlert(error.message, 'error')
 					reject(error)
 				})
 
@@ -172,7 +180,7 @@ export const apiMultipartRequest = async (
 			return await response.json()
 		} catch {}
 	} catch (err) {
-		addAlert(err.message, 'error')
+		if (!silent) addAlert(err.message, 'error')
 
 		throw err
 	}

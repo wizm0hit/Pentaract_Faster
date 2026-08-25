@@ -284,7 +284,7 @@ const createFolder = async (storage_id, path, folderName) => {
  * @param {(progress: number) => void} onProgress
  * @returns {Promise<any>}
  */
-const uploadChunk = async (storage_id, chunkData, onProgress = null) => {
+const uploadChunk = async (storage_id, chunkData, onProgress = null, silent = true) => {
 	const form = new FormData()
 	form.append('chunk', chunkData.chunk, `${chunkData.file_name}.part_${chunkData.chunk_index}`)
 	form.append('chunk_index', String(chunkData.chunk_index))
@@ -298,7 +298,8 @@ const uploadChunk = async (storage_id, chunkData, onProgress = null) => {
 		`/storages/${storage_id}/files/upload_chunk`,
 		getAuthToken(),
 		form,
-		onProgress
+		onProgress,
+		silent
 	)
 }
 

@@ -301,11 +301,19 @@ const GlobalUploadDock = () => {
 											</Typography>
 											<Typography
 												variant="caption"
-												sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 1 }}
+												sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
 											>
 												<span>{convertSize(task.fileSize)}</span>
 												<span>•</span>
 												<span>{task.totalChunks} slice{task.totalChunks > 1 ? 's' : ''}</span>
+												<Show when={task.speed}>
+													<span>•</span>
+													<span style={{ color: '#38bdf8', 'font-weight': 600 }}>{task.speed}</span>
+												</Show>
+												<Show when={task.eta}>
+													<span>•</span>
+													<span style={{ color: '#a78bfa' }}>{task.eta}</span>
+												</Show>
 											</Typography>
 										</Box>
 

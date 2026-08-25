@@ -42,7 +42,7 @@ interface EncryptedChunk {
 	iv: string // hex
 	authTag: string // hex
 	sha256: string // hex
-	cipherBuffer: Buffer
+	cipherBuffer?: Buffer
 	workerName?: string
 	telegramMessageId?: number
 }
@@ -66,43 +66,64 @@ function deriveStorageKey(storageId: string): Buffer {
 }
 
 /**
- * Uploads an encrypted chunk to Telegram via the Bot API sendDocument endpoint
+ * Uploads an encrypted chunk to Telegram via the Bot API sendDocument endpoint with rate limit backoff and retries
  */
 async function uploadChunkToTelegram(
 	botToken: string,
 	chatId: number | string,
 	chunk: EncryptedChunk,
-	fileName: string
+	fileName: string,
+	maxRetries: number = 3
 ): Promise<number | null> {
-	try {
-		if (!botToken || botToken.includes('DEMO_WORKER')) {
-			return null
-		}
-
-		const formData = new FormData()
-		formData.append('chat_id', String(chatId))
-		const chunkBlob = new Blob([chunk.cipherBuffer], { type: 'application/octet-stream' })
-		const chunkName = `${fileName}.part_${chunk.index}.enc`
-		formData.append('document', chunkBlob, chunkName)
-		formData.append('caption', `🔒 AES-256-GCM | Chunk ${chunk.index + 1}/${chunk.totalChunks}\nSHA-256: ${chunk.sha256.substring(0, 16)}...`)
-
-		const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
-			method: 'POST',
-			body: formData,
-		})
-
-		const data = (await res.json()) as any
-		if (data.ok && data.result?.message_id) {
-			console.log(`[Telegram Bot] Successfully posted chunk ${chunk.index} (msg_id: ${data.result.message_id}) to chat ${chatId}`)
-			return data.result.message_id
-		} else {
-			console.warn(`[Telegram Bot API Notice] ${data.description || 'Could not post document'}`)
-			return null
-		}
-	} catch (e: any) {
-		console.warn(`[Telegram Bot Dispatch Error] ${e.message}`)
+	if (!botToken || botToken.includes('DEMO_WORKER') || !chunk.cipherBuffer) {
 		return null
 	}
+
+	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		try {
+			const formData = new FormData()
+			formData.append('chat_id', String(chatId))
+			const chunkBlob = new Blob([chunk.cipherBuffer], { type: 'application/octet-stream' })
+			const chunkName = `${fileName}.part_${chunk.index}.enc`
+			formData.append('document', chunkBlob, chunkName)
+			formData.append('caption', `🔒 AES-256-GCM | Chunk ${chunk.index + 1}/${chunk.totalChunks}\nSHA-256: ${chunk.sha256.substring(0, 16)}...`)
+
+			const controller = new AbortController()
+			const timeoutId = setTimeout(() => controller.abort(), 60000)
+
+			const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+				method: 'POST',
+				body: formData,
+				signal: controller.signal,
+			})
+			clearTimeout(timeoutId)
+
+			const data = (await res.json()) as any
+			if (data.ok && data.result?.message_id) {
+				console.log(`[Telegram Bot] Successfully posted chunk ${chunk.index + 1}/${chunk.totalChunks} (msg_id: ${data.result.message_id}) to chat ${chatId}`)
+				return data.result.message_id
+			}
+
+			// Handle Telegram 429 Rate Limit
+			if (data.error_code === 429 || res.status === 429) {
+				const retryAfter = (data.parameters?.retry_after || 2)
+				console.warn(`[Telegram Bot Rate Limit] 429 Too Many Requests. Pausing ${retryAfter}s (attempt ${attempt}/${maxRetries})...`)
+				await new Promise((r) => setTimeout(r, Math.min(retryAfter * 1000, 6000)))
+				continue
+			}
+
+			console.warn(`[Telegram Bot API Notice] Chunk ${chunk.index + 1} attempt ${attempt}: ${data.description || 'Could not post document'}`)
+			if (attempt < maxRetries) {
+				await new Promise((r) => setTimeout(r, attempt * 1200))
+			}
+		} catch (e: any) {
+			console.warn(`[Telegram Bot Dispatch Error] Chunk ${chunk.index + 1} attempt ${attempt}: ${e.message}`)
+			if (attempt < maxRetries) {
+				await new Promise((r) => setTimeout(r, attempt * 1200))
+			}
+		}
+	}
+	return null
 }
 
 /**
@@ -531,13 +552,17 @@ function applyStateJson(data: any) {
 		for (const [sId, filesList] of data.storageFiles) {
 			const fileMap = new Map<string, StoredFile>()
 			for (const [filePath, file] of filesList) {
-				const restoredChunks: EncryptedChunk[] = (file.chunks || []).map((c: any) => {
-					const diskBuf = loadChunkFromDisk(sId, c.sha256)
-					return {
-						...c,
-						cipherBuffer: diskBuf || Buffer.alloc(c.encryptedSize || 0),
-					}
-				})
+				const restoredChunks: EncryptedChunk[] = (file.chunks || []).map((c: any) => ({
+					index: c.index,
+					totalChunks: c.totalChunks,
+					rawSize: c.rawSize,
+					encryptedSize: c.encryptedSize,
+					iv: c.iv,
+					authTag: c.authTag,
+					sha256: c.sha256,
+					workerName: c.workerName,
+					telegramMessageId: c.telegramMessageId,
+				}))
 
 				fileMap.set(filePath, {
 					...file,
@@ -1321,6 +1346,19 @@ app.post('/api/storages/:storage_id/files/upload_chunk', authenticateToken, uplo
 		}
 	}
 
+	// Convert to metadata only without storing raw buffer in RAM
+	const chunkMeta: EncryptedChunk = {
+		index: encryptedChunk.index,
+		totalChunks: encryptedChunk.totalChunks,
+		rawSize: encryptedChunk.rawSize,
+		encryptedSize: encryptedChunk.encryptedSize,
+		iv: encryptedChunk.iv,
+		authTag: encryptedChunk.authTag,
+		sha256: encryptedChunk.sha256,
+		workerName: encryptedChunk.workerName,
+		telegramMessageId: encryptedChunk.telegramMessageId,
+	}
+
 	// Update in-flight tracking
 	const fileKey = `${sId}::${fullPath}`
 	if (!inFlightChunkUploads.has(fileKey)) {
@@ -1332,9 +1370,9 @@ app.post('/api/storages/:storage_id/files/upload_chunk', authenticateToken, uplo
 	// Replace or add chunk
 	const existingIdx = inFlight.chunks.findIndex((c) => c.index === chunkIndex)
 	if (existingIdx >= 0) {
-		inFlight.chunks[existingIdx] = encryptedChunk
+		inFlight.chunks[existingIdx] = chunkMeta
 	} else {
-		inFlight.chunks.push(encryptedChunk)
+		inFlight.chunks.push(chunkMeta)
 	}
 
 	let fileCompleted = false
@@ -1536,8 +1574,8 @@ app.get(['/api/storages/:storage_id/files/info', '/api/storages/:storage_id/file
 	})
 })
 
-// Files: High-Speed Decryption & Download
-app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/files/download/*'], authenticateToken, (req, res) => {
+// Files: High-Speed Streaming Decryption & Download
+app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/files/download/*'], authenticateToken, async (req, res) => {
 	const sId = req.params.storage_id
 	const rawPath = req.params[0] || (req.params as any).path || (req.query.path as string) || ''
 	const targetPath = decodeURIComponent(rawPath).replace(/^\/+|\/+$/g, '')
@@ -1559,19 +1597,40 @@ app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/
 	}
 
 	try {
-		// Decrypt chunks in parallel and assemble
-		const decryptedBuffer = decryptAndAssembleFile(file.chunks, sId)
-
 		const filename = file.name || targetPath.split('/').pop() || 'download.bin'
 		res.setHeader('Content-Type', file.mimeType || 'application/octet-stream')
 		res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
-		res.setHeader('Content-Length', decryptedBuffer.length)
+		res.setHeader('Content-Length', file.size)
 		res.setHeader('X-Encryption-Algorithm', 'AES-256-GCM')
 		res.setHeader('X-Decrypted-Chunks', String(file.chunksCount))
-		res.send(decryptedBuffer)
+
+		const key = deriveStorageKey(sId)
+		const sorted = [...(file.chunks || [])].sort((a, b) => a.index - b.index)
+
+		for (const chunk of sorted) {
+			let cipherBuf = chunk.cipherBuffer
+			if (!cipherBuf || cipherBuf.length === 0) {
+				cipherBuf = loadChunkFromDisk(sId, chunk.sha256)
+			}
+			if (!cipherBuf) {
+				console.warn(`[Download Warning] Chunk ${chunk.index} missing on disk`)
+				continue
+			}
+
+			const iv = Buffer.from(chunk.iv, 'hex')
+			const authTag = Buffer.from(chunk.authTag, 'hex')
+			const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv)
+			decipher.setAuthTag(authTag)
+
+			const decrypted = Buffer.concat([decipher.update(cipherBuf), decipher.final()])
+			res.write(decrypted)
+		}
+		res.end()
 	} catch (err: any) {
-		console.error('Decryption download error:', err)
-		res.status(500).json({ error: 'Failed to decrypt and reassemble file chunks' })
+		console.error('Decryption streaming download error:', err)
+		if (!res.headersSent) {
+			res.status(500).json({ error: 'Failed to decrypt and stream file chunks' })
+		}
 	}
 })
 
