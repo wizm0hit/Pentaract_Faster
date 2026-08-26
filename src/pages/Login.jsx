@@ -8,7 +8,9 @@ import Divider from '@suid/material/Divider'
 import Chip from '@suid/material/Chip'
 import Alert from '@suid/material/Alert'
 import ShieldIcon from '@suid/icons-material/Shield'
-import { useNavigate } from '@solidjs/router'
+import AdminPanelSettingsIcon from '@suid/icons-material/AdminPanelSettings'
+import PersonIcon from '@suid/icons-material/Person'
+import { A, useNavigate } from '@solidjs/router'
 
 import createLocalStore from '../../libs'
 import API from '../api'
@@ -21,8 +23,8 @@ const Login = () => {
 	const navigate = useNavigate()
 	const [loading, setLoading] = createSignal(false)
 	const [errorMsg, setErrorMsg] = createSignal('')
-	const [emailVal, setEmailVal] = createSignal('')
-	const [passVal, setPassVal] = createSignal('')
+	const [emailVal, setEmailVal] = createSignal('admin@pentaract.local')
+	const [passVal, setPassVal] = createSignal('admin123')
 
 	onMount(() => {
 		if (store.access_token) {
@@ -30,24 +32,23 @@ const Login = () => {
 		}
 	})
 
-	const handleSubmit = async (event) => {
-		event.preventDefault()
+	const loginWithCredentials = async (email, password) => {
 		setErrorMsg('')
 		setLoading(true)
 
-		const email = (emailVal() || '').trim()
-		const password = passVal() || ''
+		const cleanEmail = (email || '').trim()
+		const cleanPass = password || ''
 
-		if (!email || !password) {
+		if (!cleanEmail || !cleanPass) {
 			setErrorMsg('Please enter both email and password.')
 			setLoading(false)
 			return
 		}
 
 		try {
-			const tokenData = await API.auth.login(email, password)
+			const tokenData = await API.auth.login(cleanEmail, cleanPass)
 			setStore('access_token', tokenData.access_token)
-			setStore('user', tokenData.user || { email, role: 'user' })
+			setStore('user', tokenData.user || { email: cleanEmail, role: 'user' })
 			addAlert('Logged in successfully', 'success')
 
 			const redirect_url = store.redirect || '/storages'
@@ -58,6 +59,17 @@ const Login = () => {
 		} finally {
 			setLoading(false)
 		}
+	}
+
+	const handleSubmit = async (event) => {
+		event.preventDefault()
+		await loginWithCredentials(emailVal(), passVal())
+	}
+
+	const handleQuickLogin = (email, pass) => {
+		setEmailVal(email)
+		setPassVal(pass)
+		loginWithCredentials(email, pass)
 	}
 
 	return (
@@ -122,13 +134,56 @@ const Login = () => {
 						</Alert>
 					)}
 
+					{/* Quick Demo Logins */}
+					<Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+						<Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1 }}>
+							Quick 1-Click Access
+						</Typography>
+						<Box sx={{ display: 'flex', gap: 1 }}>
+							<Button
+								variant="outlined"
+								size="small"
+								fullWidth
+								startIcon={<AdminPanelSettingsIcon sx={{ fontSize: 16 }} />}
+								onClick={() => handleQuickLogin('admin@pentaract.local', 'admin123')}
+								disabled={loading()}
+								sx={{
+									textTransform: 'none',
+									fontSize: '0.78rem',
+									borderColor: 'rgba(99, 102, 241, 0.4)',
+									color: '#a5b4fc',
+									'&:hover': { borderColor: '#6366f1', bgcolor: 'rgba(99, 102, 241, 0.1)' },
+								}}
+							>
+								Admin (Default)
+							</Button>
+							<Button
+								variant="outlined"
+								size="small"
+								fullWidth
+								startIcon={<PersonIcon sx={{ fontSize: 16 }} />}
+								onClick={() => handleQuickLogin('user@pentaract.local', 'user123')}
+								disabled={loading()}
+								sx={{
+									textTransform: 'none',
+									fontSize: '0.78rem',
+									borderColor: 'rgba(148, 163, 184, 0.3)',
+									color: '#cbd5e1',
+									'&:hover': { borderColor: '#94a3b8', bgcolor: 'rgba(255, 255, 255, 0.05)' },
+								}}
+							>
+								Demo User
+							</Button>
+						</Box>
+					</Box>
+
 					<TextField
 						name="email"
 						label="Email Address"
 						type="email"
 						value={emailVal()}
 						onChange={(e) => setEmailVal(e.target.value)}
-						placeholder="user@example.com"
+						placeholder="admin@pentaract.local"
 						variant="outlined"
 						fullWidth
 						required
@@ -179,6 +234,15 @@ const Login = () => {
 					>
 						{loading() ? 'Authenticating...' : 'Sign In'}
 					</Button>
+
+					<Box sx={{ textAlign: 'center', mt: 0.5 }}>
+						<Typography variant="body2" sx={{ color: '#94a3b8', fontSize: 13 }}>
+							Don't have an account?{' '}
+							<A href="/register" style={{ color: '#818cf8', 'text-decoration': 'none', 'font-weight': 600 }}>
+								Create Account
+							</A>
+						</Typography>
+					</Box>
 				</Box>
 			</Paper>
 		</Box>

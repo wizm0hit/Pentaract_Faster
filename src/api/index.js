@@ -466,8 +466,22 @@ const restoreSystemBackup = async (backupData) => {
 
 function getRawAuthToken() {
 	const [store] = createLocalStore()
+	let token = ''
 	if (store && store.access_token) {
-		return store.access_token
+		token = store.access_token
+	}
+	if (!token && typeof localStorage !== 'undefined') {
+		const raw = localStorage.getItem('access_token')
+		if (raw) {
+			try {
+				token = JSON.parse(raw)
+			} catch (_) {
+				token = raw
+			}
+		}
+	}
+	if (typeof token === 'string') {
+		return token.replace(/^["']|["']$/g, '').trim()
 	}
 	return ''
 }

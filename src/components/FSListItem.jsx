@@ -8,8 +8,10 @@ import IconButton from '@suid/material/IconButton'
 import Chip from '@suid/material/Chip'
 import Typography from '@suid/material/Typography'
 import Box from '@suid/material/Box'
+import Button from '@suid/material/Button'
 import Dialog from '@suid/material/Dialog'
 import DialogContent from '@suid/material/DialogContent'
+import CircularProgress from '@suid/material/CircularProgress'
 import FileIcon from '@suid/icons-material/InsertDriveFileOutlined'
 import FolderIcon from '@suid/icons-material/Folder'
 import MoreVertIcon from '@suid/icons-material/MoreVert'
@@ -19,7 +21,8 @@ import DeleteIcon from '@suid/icons-material/Delete'
 import ShieldIcon from '@suid/icons-material/Shield'
 import LockIcon from '@suid/icons-material/Lock'
 import CloseIcon from '@suid/icons-material/Close'
-import { Show, createSignal } from 'solid-js'
+import RefreshIcon from '@suid/icons-material/Refresh'
+import { Show, createSignal, createEffect } from 'solid-js'
 import { useNavigate, useParams } from '@solidjs/router'
 
 import API from '../api'
@@ -53,26 +56,103 @@ const FSListItem = (props) => {
 	const [mediaLoading, setMediaLoading] = createSignal(true)
 	const [mediaError, setMediaError] = createSignal(false)
 	const [previewKey, setPreviewKey] = createSignal(0)
+	const [blobMediaUrl, setBlobMediaUrl] = createSignal('')
+	const [isBufferingBlob, setIsBufferingBlob] = createSignal(false)
+	const [textContent, setTextContent] = createSignal('')
+	const [textLoading, setTextLoading] = createSignal(false)
 	const navigate = useNavigate()
 	const params = useParams()
 	const activeStorageId = () => props.storageId || params.id
+
 	const mediaKind = () => {
 		const name = (props.fsElement.name || '').toLowerCase()
-		if (/\.(avif|bmp|gif|jpe?g|png|svg|webp|ico)$/.test(name)) return 'image'
-		if (/\.(m4v|mov|mp4|ogg|ogv|webm|mkv|avi)$/.test(name)) return 'video'
-		if (/\.(mp3|wav|flac|aac|m4a|oga|opus)$/.test(name)) return 'audio'
-		return null
+		if (/\.(avif|bmp|gif|jpe?g|png|svg|webp|ico|tif|tiff)$/.test(name)) return 'image'
+		if (/\.(m4v|mov|mp4|ogg|ogv|webm|mkv|avi|wmv|flv|ts)$/.test(name)) return 'video'
+		if (/\.(mp3|wav|flac|aac|m4a|oga|opus|weba)$/.test(name)) return 'audio'
+		if (/\.(pdf)$/.test(name)) return 'pdf'
+		if (/\.(txt|json|js|jsx|ts|tsx|html|css|scss|md|markdown|log|csv|xml|yml|yaml|env|py|sh|sql|c|cpp|h|rs|go|toml|ini)$/.test(name)) return 'text'
+		return 'other'
 	}
+
 	const mediaUrl = () => {
+		if (blobMediaUrl()) return blobMediaUrl()
 		const base = API.files.getMediaUrl(activeStorageId(), props.fsElement.path)
 		return previewKey() > 0 ? `${base}&_k=${previewKey()}` : base
 	}
 
+	const loadBlobFallback = async () => {
+		if (isBufferingBlob()) return
+		setIsBufferingBlob(true)
+		setMediaLoading(true)
+		setMediaError(false)
+		try {
+			const blob = await API.files.download(activeStorageId(), props.fsElement.path)
+			if (blob && blob.size > 0) {
+				const mime = props.fsElement.mimeType || (mediaKind() === 'video' ? 'video/mp4' : 'application/octet-stream')
+				const typedBlob = blob.type ? blob : new Blob([blob], { type: mime })
+				const url = URL.createObjectURL(typedBlob)
+				if (blobMediaUrl()) URL.revokeObjectURL(blobMediaUrl())
+				setBlobMediaUrl(url)
+				setMediaError(false)
+			} else {
+				throw new Error('Empty file')
+			}
+		} catch (err) {
+			console.warn('In-memory playback buffer failed:', err)
+			setMediaError(true)
+		} finally {
+			setIsBufferingBlob(false)
+			setMediaLoading(false)
+		}
+	}
+
+	const handleMediaError = () => {
+		if (!blobMediaUrl() && (mediaKind() === 'video' || mediaKind() === 'audio')) {
+			// Auto-fallback to full decrypted buffer playback if native range stream encounters browser codec/network issue
+			loadBlobFallback()
+		} else {
+			setMediaLoading(false)
+			setMediaError(true)
+		}
+	}
+
 	const retryMediaStream = () => {
+		if (blobMediaUrl()) {
+			URL.revokeObjectURL(blobMediaUrl())
+			setBlobMediaUrl('')
+		}
 		setMediaError(false)
 		setMediaLoading(true)
 		setPreviewKey((k) => k + 1)
 	}
+
+	const handleCloseMediaPreview = () => {
+		setIsMediaPreviewOpened(false)
+		if (blobMediaUrl()) {
+			URL.revokeObjectURL(blobMediaUrl())
+			setBlobMediaUrl('')
+		}
+	}
+
+	// Fetch text preview when text file modal is opened
+	createEffect(async () => {
+		if (isMediaPreviewOpened() && mediaKind() === 'text' && props.fsElement.is_file) {
+			setTextLoading(true)
+			setTextContent('')
+			try {
+				const blob = await API.files.download(activeStorageId(), props.fsElement.path)
+				const text = await blob.text()
+				setTextContent(text)
+				setMediaLoading(false)
+			} catch (err) {
+				console.error('Failed to load text preview:', err)
+				setMediaError(true)
+				setMediaLoading(false)
+			} finally {
+				setTextLoading(false)
+			}
+		}
+	})
 
 	const openMore = () => Boolean(moreAnchorEl())
 
@@ -83,7 +163,7 @@ const FSListItem = (props) => {
 	const handleNavigate = () => {
 		if (!props.fsElement.is_file) {
 			navigate(`/storages/${activeStorageId()}/files/${props.fsElement.path}`)
-		} else if (mediaKind()) {
+		} else {
 			setMediaLoading(true)
 			setMediaError(false)
 			setIsMediaPreviewOpened(true)
@@ -347,19 +427,21 @@ const FSListItem = (props) => {
 				onDownload={props.fsElement.is_file ? download : undefined}
 			/>
 
+			{/* Universal Interactive File Preview & Media Stream Modal */}
 			<Dialog
 				open={isMediaPreviewOpened()}
-				onClose={() => setIsMediaPreviewOpened(false)}
+				onClose={handleCloseMediaPreview}
 				maxWidth="lg"
 				fullWidth
 				PaperProps={{
 					sx: {
 						backgroundColor: 'background.paper',
 						color: 'text.primary',
-						borderRadius: '12px',
+						borderRadius: '14px',
 						border: '1px solid',
 						borderColor: 'divider',
 						overflow: 'hidden',
+						boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
 					},
 				}}
 			>
@@ -372,11 +454,12 @@ const FSListItem = (props) => {
 						py: 1.5,
 						borderBottom: '1px solid',
 						borderColor: 'divider',
+						bgcolor: 'rgba(255, 255, 255, 0.02)',
 					}}
 				>
 					<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
 						<Chip
-							label={props.fsElement.size ? convertSize(props.fsElement.size) : 'Media'}
+							label={props.fsElement.size ? convertSize(props.fsElement.size) : 'File'}
 							size="small"
 							sx={{ height: '22px', fontSize: '0.72rem', fontWeight: 600, bgcolor: 'action.hover' }}
 						/>
@@ -387,13 +470,25 @@ const FSListItem = (props) => {
 					<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
 						<Button
 							size="small"
+							startIcon={<InfoIcon />}
+							onClick={() => {
+								handleCloseMediaPreview()
+								setIsInfoDialogOpened(true)
+							}}
+							sx={{ textTransform: 'none', fontSize: '0.8rem', color: 'text.secondary' }}
+						>
+							Chunks
+						</Button>
+						<Button
+							size="small"
+							variant="contained"
 							startIcon={<DownloadIcon />}
 							onClick={download}
-							sx={{ textTransform: 'none', fontSize: '0.8rem' }}
+							sx={{ textTransform: 'none', fontSize: '0.8rem', bgcolor: 'success.main', '&:hover': { bgcolor: 'success.dark' } }}
 						>
-							Download
+							Decrypt & Download
 						</Button>
-						<IconButton aria-label="Close preview" onClick={() => setIsMediaPreviewOpened(false)} size="small">
+						<IconButton aria-label="Close preview" onClick={handleCloseMediaPreview} size="small">
 							<CloseIcon fontSize="small" />
 						</IconButton>
 					</Box>
@@ -406,75 +501,184 @@ const FSListItem = (props) => {
 						flexDirection: 'column',
 						alignItems: 'center',
 						justifyContent: 'center',
-						minHeight: '280px',
-						bgcolor: '#000000',
+						minHeight: '320px',
+						bgcolor: '#0a0d14',
 						position: 'relative',
 					}}
 				>
-					<Show when={mediaError()}>
-						<Box sx={{ p: 4, textAlign: 'center', color: '#f8fafc' }}>
-							<Typography sx={{ mb: 1, fontWeight: 600 }}>Media Stream Disconnected</Typography>
-							<Typography variant="body2" sx={{ color: '#94a3b8', mb: 2 }}>
-								Could not stream real-time chunks. The server may have reconnected.
+					{/* Loading Spinner */}
+					<Show when={mediaLoading() && !mediaError() && mediaKind() !== 'text' && mediaKind() !== 'other'}>
+						<Box sx={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, zIndex: 2 }}>
+							<CircularProgress size={36} sx={{ color: 'primary.main' }} />
+							<Typography variant="body2" sx={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+								{isBufferingBlob() ? 'Decrypting full file buffer for smooth playback...' : 'Decrypting and streaming AES-256 slices...'}
 							</Typography>
-							<Button variant="contained" size="small" onClick={retryMediaStream}>
-								Retry Streaming
-							</Button>
 						</Box>
 					</Show>
 
+					{/* Error State */}
+					<Show when={mediaError()}>
+						<Box sx={{ p: 4, textAlign: 'center', color: '#f8fafc' }}>
+							<Typography sx={{ mb: 1, fontWeight: 600, fontSize: '1.1rem' }}>Media Stream Notice</Typography>
+							<Typography variant="body2" sx={{ color: '#94a3b8', mb: 2.5, maxWidth: 460 }}>
+								Browser was unable to play the direct stream with current hardware/codec capabilities. You can load it into an in-browser decrypted buffer or download the file directly.
+							</Typography>
+							<Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+								<Button variant="outlined" size="small" startIcon={<RefreshIcon />} onClick={retryMediaStream} sx={{ textTransform: 'none' }}>
+									Retry Stream
+								</Button>
+								<Button variant="outlined" color="primary" size="small" onClick={loadBlobFallback} sx={{ textTransform: 'none' }}>
+									Play via Memory Buffer
+								</Button>
+								<Button variant="contained" color="success" size="small" startIcon={<DownloadIcon />} onClick={download} sx={{ textTransform: 'none' }}>
+									Decrypt & Download File
+								</Button>
+							</Box>
+						</Box>
+					</Show>
+
+					{/* Image Preview */}
 					<Show when={!mediaError() && mediaKind() === 'image'}>
-						<img
-							src={mediaUrl()}
-							alt={props.fsElement.name}
-							onLoad={() => setMediaLoading(false)}
-							onError={() => {
-								setMediaLoading(false)
-								setMediaError(true)
-							}}
-							style={{
-								display: 'block',
-								'max-width': '100%',
-								'max-height': '80vh',
-								'object-fit': 'contain',
-							}}
-						/>
+						<Box sx={{ p: 2, display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', maxHeight: '82vh' }}>
+							<img
+								src={mediaUrl()}
+								alt={props.fsElement.name}
+								onLoad={() => setMediaLoading(false)}
+								onError={handleMediaError}
+								style={{
+									display: 'block',
+									'max-width': '100%',
+									'max-height': '78vh',
+									'object-fit': 'contain',
+									'border-radius': '8px',
+								}}
+							/>
+						</Box>
 					</Show>
 
+					{/* Video Player */}
 					<Show when={!mediaError() && mediaKind() === 'video'}>
-						<video
-							src={mediaUrl()}
-							controls
-							autoplay
-							playsinline
-							preload="metadata"
-							onCanPlay={() => setMediaLoading(false)}
-							onError={() => {
-								setMediaLoading(false)
-								setMediaError(true)
-							}}
-							style={{
-								display: 'block',
-								width: '100%',
-								'max-height': '80vh',
-								background: '#000',
-							}}
-						/>
+						<Box sx={{ width: '100%', maxHeight: '82vh', bgcolor: '#000' }}>
+							<video
+								src={mediaUrl()}
+								controls
+								playsinline
+								preload="metadata"
+								crossOrigin="anonymous"
+								onCanPlay={() => setMediaLoading(false)}
+								onPlaying={() => setMediaLoading(false)}
+								onLoadedMetadata={() => setMediaLoading(false)}
+								onError={handleMediaError}
+								style={{
+									display: 'block',
+									width: '100%',
+									'max-height': '78vh',
+									background: '#000',
+								}}
+							/>
+						</Box>
 					</Show>
 
+					{/* Audio Player */}
 					<Show when={!mediaError() && mediaKind() === 'audio'}>
-						<Box sx={{ p: 4, width: '100%', maxWidth: 500, textAlign: 'center' }}>
+						<Box sx={{ p: 5, width: '100%', maxWidth: 520, textAlign: 'center' }}>
+							<Box sx={{ width: 64, height: 64, borderRadius: '50%', bgcolor: 'rgba(99, 102, 241, 0.15)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', mb: 2, color: 'primary.main' }}>
+								<FileIcon sx={{ fontSize: 32 }} />
+							</Box>
+							<Typography sx={{ fontWeight: 600, mb: 0.5, color: '#f8fafc' }}>{props.fsElement.name}</Typography>
+							<Typography variant="body2" sx={{ color: '#94a3b8', mb: 3 }}>
+								{convertSize(props.fsElement.size)} • Encrypted Audio Stream
+							</Typography>
 							<audio
 								src={mediaUrl()}
 								controls
-								autoplay
+								preload="metadata"
 								onCanPlay={() => setMediaLoading(false)}
+								onPlaying={() => setMediaLoading(false)}
+								onError={handleMediaError}
+								style={{ width: '100%' }}
+							/>
+						</Box>
+					</Show>
+
+					{/* Text / Code Preview */}
+					<Show when={!mediaError() && mediaKind() === 'text'}>
+						<Box sx={{ width: '100%', p: 2.5, maxHeight: '78vh', overflow: 'auto' }}>
+							<Show when={textLoading()}>
+								<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4, gap: 1.5 }}>
+									<CircularProgress size={24} />
+									<Typography variant="body2" sx={{ color: '#94a3b8' }}>Loading and decrypting text...</Typography>
+								</Box>
+							</Show>
+							<Show when={!textLoading()}>
+								<pre style={{
+									margin: 0,
+									padding: '16px',
+									'background-color': '#111827',
+									'border-radius': '8px',
+									'font-family': 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+									'font-size': '0.85rem',
+									color: '#e2e8f0',
+									'white-space': 'pre-wrap',
+									'word-break': 'break-word',
+									border: '1px solid rgba(255,255,255,0.08)'
+								}}>
+									{textContent()}
+								</pre>
+							</Show>
+						</Box>
+					</Show>
+
+					{/* PDF Preview */}
+					<Show when={!mediaError() && mediaKind() === 'pdf'}>
+						<Box sx={{ width: '100%', height: '78vh' }}>
+							<iframe
+								src={mediaUrl()}
+								title={props.fsElement.name}
+								onLoad={() => setMediaLoading(false)}
 								onError={() => {
 									setMediaLoading(false)
 									setMediaError(true)
 								}}
-								style={{ width: '100%' }}
+								style={{ width: '100%', height: '100%', border: 'none' }}
 							/>
+						</Box>
+					</Show>
+
+					{/* Generic / Binary File Card */}
+					<Show when={!mediaError() && mediaKind() === 'other'}>
+						<Box sx={{ p: 5, textAlign: 'center', maxWidth: 480 }}>
+							<Box sx={{ width: 68, height: 68, borderRadius: '16px', bgcolor: 'rgba(99, 102, 241, 0.15)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', mb: 2.5, color: '#818cf8' }}>
+								<LockIcon sx={{ fontSize: 34 }} />
+							</Box>
+							<Typography variant="h6" sx={{ fontWeight: 600, color: '#f8fafc', mb: 0.5 }}>
+								{props.fsElement.name}
+							</Typography>
+							<Typography variant="body2" sx={{ color: '#94a3b8', mb: 3 }}>
+								{convertSize(props.fsElement.size)} • {props.fsElement.chunks_count || 1} Chunks • AES-256-GCM Encrypted
+							</Typography>
+							<Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'center' }}>
+								<Button
+									variant="outlined"
+									startIcon={<InfoIcon />}
+									onClick={() => {
+										setIsMediaPreviewOpened(false)
+										setIsInfoDialogOpened(true)
+									}}
+									sx={{ textTransform: 'none' }}
+								>
+									Inspect Chunks
+								</Button>
+								<Button
+									variant="contained"
+									color="success"
+									startIcon={<DownloadIcon />}
+									onClick={download}
+									sx={{ textTransform: 'none' }}
+								>
+									Decrypt & Download
+								</Button>
+							</Box>
 						</Box>
 					</Show>
 				</DialogContent>
