@@ -34,10 +34,10 @@ import ShieldIcon from '@suid/icons-material/Shield'
 import API from '../../api'
 import createLocalStore from '../../../libs'
 import { alertStore } from '../../components/AlertStack'
-import { checkAuth } from '../../common/auth_guard'
+import { checkAdmin } from '../../common/auth_guard'
 
 const UsersPage = () => {
-	checkAuth()
+	checkAdmin()
 	const [store] = createLocalStore()
 	const { addAlert } = alertStore
 
@@ -168,14 +168,14 @@ const UsersPage = () => {
 					alignItems: { xs: 'flex-start', sm: 'center' },
 					justifyContent: 'space-between',
 					gap: 2,
-					mb: 3.5,
+					mb: 3,
 				}}
 			>
 				<Box>
-					<Typography variant="h5" sx={{ fontWeight: 800, color: '#f8fafc', letterSpacing: '-0.02em' }}>
+					<Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', letterSpacing: '-0.02em' }}>
 						User Management
 					</Typography>
-					<Typography variant="body2" sx={{ color: '#94a3b8', mt: 0.5 }}>
+					<Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.25 }}>
 						Database-backed credentials & role-based vault authorization
 					</Typography>
 				</Box>
@@ -187,11 +187,9 @@ const UsersPage = () => {
 						onClick={loadUsers}
 						disabled={loading()}
 						sx={{
-							color: '#cbd5e1',
-							borderColor: 'rgba(255, 255, 255, 0.12)',
 							textTransform: 'none',
 							fontWeight: 600,
-							borderRadius: 2,
+							borderRadius: '8px',
 						}}
 					>
 						Refresh
@@ -201,12 +199,9 @@ const UsersPage = () => {
 						startIcon={<PersonAddIcon />}
 						onClick={() => setCreateOpen(true)}
 						sx={{
-							background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
-							color: 'white',
 							textTransform: 'none',
-							fontWeight: 700,
-							borderRadius: 2,
-							boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+							fontWeight: 600,
+							borderRadius: '8px',
 						}}
 					>
 						Create Account
@@ -219,16 +214,17 @@ const UsersPage = () => {
 				sx={{
 					p: 2,
 					mb: 3,
-					borderRadius: 2.5,
-					backgroundColor: 'rgba(99, 102, 241, 0.07)',
-					border: '1px solid rgba(99, 102, 241, 0.2)',
+					borderRadius: '10px',
+					bgcolor: 'background.paper',
+					border: '1px solid',
+					borderColor: 'divider',
 					display: 'flex',
 					alignItems: 'center',
 					gap: 1.5,
 				}}
 			>
-				<ShieldIcon sx={{ color: '#818cf8', fontSize: 22 }} />
-				<Typography variant="body2" sx={{ color: '#cbd5e1', fontSize: 13 }}>
+				<ShieldIcon sx={{ color: 'primary.main', fontSize: 22 }} />
+				<Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 13 }}>
 					<strong>Private Database Storage:</strong> User credentials are cryptographic PBKDF2 hashed and stored in persistent disk database. Public account creation is disabled.
 				</Typography>
 			</Paper>
@@ -237,28 +233,29 @@ const UsersPage = () => {
 			<TableContainer
 				component={Paper}
 				sx={{
-					borderRadius: 3,
-					backgroundColor: '#0d1527',
-					border: '1px solid rgba(255, 255, 255, 0.08)',
+					borderRadius: '12px',
+					bgcolor: 'background.paper',
+					border: '1px solid',
+					borderColor: 'divider',
 					overflow: 'hidden',
 				}}
 			>
 				<Table>
-					<TableHead sx={{ backgroundColor: 'rgba(255, 255, 255, 0.03)' }}>
+					<TableHead sx={{ bgcolor: 'action.hover' }}>
 						<TableRow>
-							<TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+							<TableCell sx={{ color: 'text.secondary', fontWeight: 600, borderColor: 'divider' }}>
 								Account Email
 							</TableCell>
-							<TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+							<TableCell sx={{ color: 'text.secondary', fontWeight: 600, borderColor: 'divider' }}>
 								Role
 							</TableCell>
-							<TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+							<TableCell sx={{ color: 'text.secondary', fontWeight: 600, borderColor: 'divider' }}>
 								Created At
 							</TableCell>
-							<TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+							<TableCell sx={{ color: 'text.secondary', fontWeight: 600, borderColor: 'divider' }}>
 								Created By
 							</TableCell>
-							<TableCell align="right" sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+							<TableCell align="right" sx={{ color: 'text.secondary', fontWeight: 600, borderColor: 'divider' }}>
 								Actions
 							</TableCell>
 						</TableRow>
@@ -266,8 +263,8 @@ const UsersPage = () => {
 					<TableBody>
 						<Show when={!loading()} fallback={
 							<TableRow>
-								<TableCell colSpan={5} align="center" sx={{ py: 6, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
-									<CircularProgress size={28} sx={{ color: '#6366f1' }} />
+								<TableCell colSpan={5} align="center" sx={{ py: 6, borderColor: 'divider' }}>
+									<CircularProgress size={28} sx={{ color: 'primary.main' }} />
 								</TableCell>
 							</TableRow>
 						}>
@@ -275,58 +272,59 @@ const UsersPage = () => {
 								{(u) => (
 									<TableRow
 										sx={{
-											borderColor: 'rgba(255, 255, 255, 0.06)',
-											'&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
+											borderColor: 'divider',
+											'&:hover': { bgcolor: 'action.hover' },
 										}}
 									>
-										<TableCell sx={{ color: '#f8fafc', fontWeight: 600, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+										<TableCell sx={{ color: 'text.primary', fontWeight: 600, borderColor: 'divider' }}>
 											<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
 												<Box
 													sx={{
-														width: 32,
-														height: 32,
-														borderRadius: 1.5,
-														backgroundColor: u.role === 'admin' ? 'rgba(99, 102, 241, 0.18)' : 'rgba(56, 189, 248, 0.12)',
+														width: 28,
+														height: 28,
+														borderRadius: '6px',
+														bgcolor: 'action.hover',
 														display: 'flex',
 														alignItems: 'center',
 														justifyContent: 'center',
-														color: u.role === 'admin' ? '#818cf8' : '#38bdf8',
+														color: 'primary.main',
 													}}
 												>
 													{u.role === 'admin' ? <AdminPanelSettingsIcon sx={{ fontSize: 18 }} /> : <PersonIcon sx={{ fontSize: 18 }} />}
 												</Box>
 												<Box>
-													<Typography sx={{ color: '#f8fafc', fontSize: 14, fontWeight: 600 }}>
+													<Typography sx={{ color: 'text.primary', fontSize: 14, fontWeight: 600 }}>
 														{u.email}
 													</Typography>
 													{store.user?.email === u.email && (
-														<Typography variant="caption" sx={{ color: '#10b981', fontWeight: 700, fontSize: 10.5 }}>
+														<Typography variant="caption" sx={{ color: 'success.main', fontWeight: 700, fontSize: 10.5 }}>
 															(You - Active Session)
 														</Typography>
 													)}
 												</Box>
 											</Box>
 										</TableCell>
-										<TableCell sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+										<TableCell sx={{ borderColor: 'divider' }}>
 											<Chip
 												label={u.role === 'admin' ? 'Administrator' : 'Standard User'}
 												size="small"
 												sx={{
-													backgroundColor: u.role === 'admin' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(56, 189, 248, 0.12)',
-													color: u.role === 'admin' ? '#a5b4fc' : '#7dd3fc',
-													border: `1px solid ${u.role === 'admin' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(56, 189, 248, 0.25)'}`,
-													fontWeight: 700,
+													bgcolor: 'action.hover',
+													color: u.role === 'admin' ? 'primary.main' : 'text.primary',
+													border: '1px solid',
+													borderColor: 'divider',
+													fontWeight: 600,
 													fontSize: 11,
 												}}
 											/>
 										</TableCell>
-										<TableCell sx={{ color: '#94a3b8', fontSize: 13, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+										<TableCell sx={{ color: 'text.secondary', fontSize: 13, borderColor: 'divider' }}>
 											{formatDate(u.createdAt)}
 										</TableCell>
-										<TableCell sx={{ color: '#94a3b8', fontSize: 13, borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+										<TableCell sx={{ color: 'text.secondary', fontSize: 13, borderColor: 'divider' }}>
 											{u.createdBy || 'System'}
 										</TableCell>
-										<TableCell align="right" sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+										<TableCell align="right" sx={{ borderColor: 'divider' }}>
 											<Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
 												<IconButton
 													size="small"

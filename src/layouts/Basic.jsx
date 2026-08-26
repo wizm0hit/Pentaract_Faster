@@ -26,16 +26,27 @@ const BasicLayout = () => {
 	return (
 		<Show when={Boolean(store.access_token)}>
 			<Header />
-			<Box>
+			<Box sx={{ minHeight: '100vh', bgcolor: 'var(--bg-default)', color: 'var(--text-primary)' }}>
 				<CssBaseline />
-				<Toolbar />
+				<Toolbar sx={{ minHeight: '60px !important' }} />
 
 				<Box sx={{ display: 'flex' }}>
 					<SideBar />
 
-					<Container sx={{ pt: 4 }}>
+					<Box
+						component="main"
+						sx={{
+							flexGrow: 1,
+							p: { xs: 2, sm: 3, md: 4 },
+							width: '100%',
+							minHeight: 'calc(100vh - 60px)',
+							bgcolor: 'var(--bg-default)',
+							color: 'var(--text-primary)',
+							overflowX: 'hidden',
+						}}
+					>
 						<Outlet />
-					</Container>
+					</Box>
 				</Box>
 			</Box>
 		</Show>

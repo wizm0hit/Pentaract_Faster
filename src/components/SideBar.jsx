@@ -4,17 +4,13 @@ import Divider from '@suid/material/Divider'
 import IconButton from '@suid/material/IconButton'
 import ChevronLeftIcon from '@suid/icons-material/ChevronLeft'
 import ChevronRightIcon from '@suid/icons-material/ChevronRight'
-import ListItem from '@suid/material/ListItem'
-import ListItemButton from '@suid/material/ListItemButton'
 import Box from '@suid/material/Box'
 import Typography from '@suid/material/Typography'
 import { createSignal, Show } from 'solid-js'
 import StorageIcon from '@suid/icons-material/Storage'
 import SmartToyIcon from '@suid/icons-material/SmartToy'
-import CloudQueueIcon from '@suid/icons-material/CloudQueue'
-import VpnKeyIcon from '@suid/icons-material/VpnKey'
 import GroupIcon from '@suid/icons-material/Group'
-import AdminPanelSettingsIcon from '@suid/icons-material/AdminPanelSettings'
+import SettingsIcon from '@suid/icons-material/Settings'
 
 import SideBarItem from './SideBarItem'
 import createLocalStore from '../../libs'
@@ -29,7 +25,7 @@ const SideBar = () => {
 		setOpen((o) => !o)
 	}
 
-	const isAdmin = () => store.user?.role === 'admin' || !store.user?.role
+	const isAdmin = () => store.user?.role === 'admin'
 
 	return (
 		<Drawer
@@ -37,68 +33,75 @@ const SideBar = () => {
 			open
 			PaperProps={{
 				sx: {
-					width: open() ? 240 : 72,
-					backgroundColor: '#0d1527',
-					borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-					color: '#f8fafc',
-					transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+					width: open() ? 230 : 68,
+					backgroundColor: 'background.paper',
+					borderRight: '1px solid',
+					borderColor: 'divider',
+					color: 'text.primary',
+					transition: 'width 0.2s ease-in-out',
 					overflowX: 'hidden',
 					position: 'relative',
-					height: 'calc(100vh - 64px)',
+					height: 'calc(100vh - 60px)',
 				},
 			}}
 		>
 			<Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: open() ? 'space-between' : 'center' }}>
 				{open() && (
-					<Typography variant="overline" sx={{ px: 1.5, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em' }}>
-						Vault Navigation
+					<Typography variant="overline" sx={{ px: 1, color: 'text.secondary', fontWeight: 700, letterSpacing: '0.08em', fontSize: '0.7rem' }}>
+						Navigation
 					</Typography>
 				)}
 				<IconButton
 					onClick={toggleDrawerOpen}
 					size="small"
 					sx={{
-						color: '#94a3b8',
-						backgroundColor: 'rgba(255, 255, 255, 0.04)',
-						'&:hover': { color: '#f8fafc', backgroundColor: 'rgba(255, 255, 255, 0.1)' },
+						color: 'text.secondary',
+						'&:hover': { color: 'text.primary' },
 					}}
 				>
 					{open() ? <ChevronLeftIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
 				</IconButton>
 			</Box>
 
-			<Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)', mb: 1 }} />
+			<Divider sx={{ mb: 1, opacity: 0.6 }} />
 
 			<List sx={{ px: 0.5 }}>
 				<SideBarItem text="Storage Vaults" link="/storages" isFull={open()}>
 					<StorageIcon />
 				</SideBarItem>
-				<SideBarItem text="Storage Workers" link="/storage_workers" isFull={open()}>
-					<SmartToyIcon />
-				</SideBarItem>
 				<Show when={isAdmin()}>
+					<SideBarItem text="Storage Workers" link="/storage_workers" isFull={open()}>
+						<SmartToyIcon />
+					</SideBarItem>
 					<SideBarItem text="User Accounts" link="/users" isFull={open()}>
 						<GroupIcon />
 					</SideBarItem>
 				</Show>
+				<SideBarItem text="Settings" link="/settings" isFull={open()}>
+					<SettingsIcon />
+				</SideBarItem>
 			</List>
 
 			{open() && (
 				<Box
 					sx={{
 						mt: 'auto',
-						p: 2,
+						p: 1.5,
 						m: 1.5,
-						borderRadius: 2.5,
-						background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)',
-						border: '1px solid rgba(99, 102, 241, 0.2)',
+						borderRadius: '10px',
+						bgcolor: 'action.hover',
+						border: '1px solid',
+						borderColor: 'divider',
 					}}
 				>
-					<Typography variant="caption" sx={{ color: '#818cf8', fontWeight: 700, display: 'block', mb: 0.5 }}>
-						AES-256-GCM
-					</Typography>
-					<Typography variant="caption" sx={{ color: '#94a3b8', fontSize: 11, lineHeight: 1.4, display: 'block' }}>
-						All chunks encrypted with 256-bit authenticated keys before distribution.
+					<Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+						<Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'success.main' }} />
+						<Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, fontSize: '0.75rem' }}>
+							AES-256-GCM
+						</Typography>
+					</Box>
+					<Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem', lineHeight: 1.3, display: 'block' }}>
+						Military-grade client chunking & Telegram vault nodes.
 					</Typography>
 				</Box>
 			)}

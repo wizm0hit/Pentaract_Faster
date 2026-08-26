@@ -8,8 +8,6 @@ import Divider from '@suid/material/Divider'
 import Chip from '@suid/material/Chip'
 import Alert from '@suid/material/Alert'
 import ShieldIcon from '@suid/icons-material/Shield'
-import LockIcon from '@suid/icons-material/Lock'
-import AdminPanelSettingsIcon from '@suid/icons-material/AdminPanelSettings'
 import { useNavigate } from '@solidjs/router'
 
 import createLocalStore from '../../libs'
@@ -23,6 +21,8 @@ const Login = () => {
 	const navigate = useNavigate()
 	const [loading, setLoading] = createSignal(false)
 	const [errorMsg, setErrorMsg] = createSignal('')
+	const [emailVal, setEmailVal] = createSignal('')
+	const [passVal, setPassVal] = createSignal('')
 
 	onMount(() => {
 		if (store.access_token) {
@@ -35,9 +35,8 @@ const Login = () => {
 		setErrorMsg('')
 		setLoading(true)
 
-		const data = new FormData(event.currentTarget)
-		const email = data.get('email')?.toString().trim()
-		const password = data.get('password')?.toString()
+		const email = (emailVal() || '').trim()
+		const password = passVal() || ''
 
 		if (!email || !password) {
 			setErrorMsg('Please enter both email and password.')
@@ -127,7 +126,9 @@ const Login = () => {
 						name="email"
 						label="Email Address"
 						type="email"
-						placeholder="admin@example.com"
+						value={emailVal()}
+						onChange={(e) => setEmailVal(e.target.value)}
+						placeholder="user@example.com"
 						variant="outlined"
 						fullWidth
 						required
@@ -145,6 +146,8 @@ const Login = () => {
 						name="password"
 						label="Password"
 						type="password"
+						value={passVal()}
+						onChange={(e) => setPassVal(e.target.value)}
 						placeholder="••••••••"
 						variant="outlined"
 						fullWidth
@@ -176,24 +179,6 @@ const Login = () => {
 					>
 						{loading() ? 'Authenticating...' : 'Sign In'}
 					</Button>
-
-					<Box
-						sx={{
-							mt: 1,
-							p: 1.5,
-							borderRadius: 2,
-							backgroundColor: 'rgba(255, 255, 255, 0.03)',
-							border: '1px solid rgba(255, 255, 255, 0.06)',
-							display: 'flex',
-							alignItems: 'center',
-							gap: 1.2,
-						}}
-					>
-						<LockIcon sx={{ fontSize: 16, color: '#94a3b8' }} />
-						<Typography variant="caption" sx={{ color: '#94a3b8', fontSize: 11.5, lineHeight: 1.4 }}>
-							Private encrypted vault. User accounts are created and managed by the system administrator.
-						</Typography>
-					</Box>
 				</Box>
 			</Paper>
 		</Box>

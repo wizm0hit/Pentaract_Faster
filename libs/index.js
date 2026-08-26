@@ -1,66 +1,92 @@
-/**
-   My modification of some package:
-   https://www.npmjs.com/package/@solid-primitives/local-store
- */
+import { createStore } from 'solid-js/store'
 
-import { createSignal, getListener } from 'solid-js'
-/**
- * Create a new storage primitive that can retain any data type
- * with an interface compatible with the Web Storage API.
- *
- * @param prefix - Prefix to wrap all stored values with.
- * @param storage - Storage engine to use for recording the value
- * @return Returns a state reader, setter and clear function
- *
- * @example
- * ```ts
- * const [value, setValue] = createStorage('app');
- * setValue('My new value');
- * console.log(value());
- * ```
- */
-function createLocalStore(prefix = null, storage = localStorage) {
-	const signals = new Map()
-	const propPrefix = prefix === null ? '' : `${prefix}.`
-	return [
-		new Proxy(
-			{},
-			{
-				get(_, key) {
-					if (key === 'toJSON') {
-						return storage.getAll ? () => storage.getAll() : () => storage
-					}
-					if (getListener()) {
-						let node = signals.get(key)
-						if (!node) {
-							node = createSignal(undefined, { equals: false })
-							signals.set(key, node)
-						}
-						node[0]()
-					}
-					const value = storage.getItem(`${propPrefix}${key}`)
-					try {
-						return JSON.parse(value)
-					} catch (_) {
-						return undefined
-					}
-				},
+const getInitialStore = () => {
+	const initial = {
+		themeMode: 'midnight',
+		accentColor: 'indigo',
+		autoPreviewMedia: true,
+		compactMode: false,
+		chunkConcurrency: 4,
+	}
+	if (typeof localStorage !== 'undefined') {
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i)
+			if (key) {
+				const raw = localStorage.getItem(key)
+				try {
+					initial[key] = JSON.parse(raw)
+				} catch (_) {
+					initial[key] = raw
+				}
 			}
-		),
-		(key, value) => {
-			storage.setItem(`${propPrefix}${key}`, JSON.stringify(value))
-			const node = signals.get(key)
-			node && node[1]()
-		},
-		(key) => {
-			storage.removeItem(`${propPrefix}${key}`)
-			const node = signals.get(key)
-			node && node[1]()
-		},
-		() => {
-			storage.clear()
-			signals.clear()
-		},
-	]
+		}
+	}
+	return initial
 }
+
+const [globalStore, setGlobalStore] = createStore(getInitialStore())
+
+function createLocalStore(prefix = null) {
+	const propPrefix = prefix === null ? '' : `${prefix}.`
+
+	const setter = (key, value) => {
+		const fullKey = `${propPrefix}${String(key)}`
+		setGlobalStore(fullKey, value)
+		if (typeof localStorage !== 'undefined') {
+			if (value === null || value === undefined) {
+				localStorage.removeItem(fullKey)
+			} else {
+				try {
+					localStorage.setItem(fullKey, JSON.stringify(value))
+				} catch (_) {
+					localStorage.setItem(fullKey, String(value))
+				}
+			}
+		}
+	}
+
+	const remover = (key) => {
+		const fullKey = `${propPrefix}${String(key)}`
+		setGlobalStore(fullKey, undefined)
+		if (typeof localStorage !== 'undefined') {
+			localStorage.removeItem(fullKey)
+		}
+	}
+
+	const clearer = () => {
+		Object.keys(globalStore).forEach((k) => {
+			if (prefix === null || k.startsWith(propPrefix)) {
+				setGlobalStore(k, undefined)
+				if (typeof localStorage !== 'undefined') {
+					localStorage.removeItem(k)
+				}
+			}
+		})
+	}
+
+	if (prefix === null) {
+		return [globalStore, setter, remover, clearer]
+	}
+
+	const proxy = new Proxy(globalStore, {
+		get(target, prop) {
+			if (typeof prop === 'symbol') {
+				return Reflect.get(target, prop)
+			}
+			if (prop === 'toJSON') {
+				return () => globalStore
+			}
+			const fullKey = `${propPrefix}${String(prop)}`
+			return target[fullKey]
+		},
+		set() {
+			return false
+		},
+	})
+
+	return [proxy, setter, remover, clearer]
+}
+
 export default createLocalStore
+
+

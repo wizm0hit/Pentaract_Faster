@@ -1,3 +1,54 @@
+:root, [data-theme='midnight'] {
+	--bg-default: #0b0f19;
+	--bg-paper: #111827;
+	--text-primary: #f8fafc;
+	--text-secondary: #94a3b8;
+	--border-divider: rgba(255, 255, 255, 0.08);
+	--action-hover: rgba(255, 255, 255, 0.04);
+	--action-selected: rgba(99, 102, 241, 0.16);
+	--primary-main: #6366f1;
+	--primary-hover: #4f46e5;
+	--secondary-main: #38bdf8;
+	--scrollbar-track: #0b0f19;
+	--scrollbar-thumb: #1e293b;
+}
+
+[data-theme='cyber'] {
+	--bg-default: #080e1a;
+	--bg-paper: #0d1527;
+	--text-primary: #f8fafc;
+	--text-secondary: #94a3b8;
+	--border-divider: rgba(56, 189, 248, 0.12);
+	--action-hover: rgba(56, 189, 248, 0.06);
+	--action-selected: rgba(56, 189, 248, 0.18);
+	--scrollbar-track: #080e1a;
+	--scrollbar-thumb: #1e293b;
+}
+
+[data-theme='monochrome'] {
+	--bg-default: #121212;
+	--bg-paper: #1e1e1e;
+	--text-primary: #ffffff;
+	--text-secondary: #a3a3a3;
+	--border-divider: rgba(255, 255, 255, 0.1);
+	--action-hover: rgba(255, 255, 255, 0.05);
+	--action-selected: rgba(255, 255, 255, 0.15);
+	--scrollbar-track: #121212;
+	--scrollbar-thumb: #2a2a2a;
+}
+
+[data-theme='light'] {
+	--bg-default: #f8fafc;
+	--bg-paper: #ffffff;
+	--text-primary: #0f172a;
+	--text-secondary: #64748b;
+	--border-divider: rgba(0, 0, 0, 0.08);
+	--action-hover: rgba(0, 0, 0, 0.04);
+	--action-selected: rgba(99, 102, 241, 0.12);
+	--scrollbar-track: #f1f5f9;
+	--scrollbar-thumb: #cbd5e1;
+}
+
 * {
 	box-sizing: border-box;
 }
@@ -10,15 +61,159 @@ body {
 		sans-serif;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
-	background: #080e1a;
-	color: #f8fafc;
+	background-color: var(--bg-default, #0b0f19) !important;
+	color: var(--text-primary, #f8fafc) !important;
 	min-height: 100vh;
+	transition: background-color 0.15s ease, color 0.15s ease;
 }
+
+/* Instant Real-Time UI element cascade */
+.MuiPaper-root {
+	background-color: var(--bg-paper) !important;
+	color: var(--text-primary) !important;
+	border-color: var(--border-divider) !important;
+	transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
+
+.MuiAppBar-root {
+	background-color: var(--bg-paper) !important;
+	color: var(--text-primary) !important;
+	border-color: var(--border-divider) !important;
+}
+
+.MuiDrawer-paper {
+	background-color: var(--bg-paper) !important;
+	color: var(--text-primary) !important;
+	border-color: var(--border-divider) !important;
+}
+
+.MuiCard-root {
+	background-color: var(--bg-paper) !important;
+	color: var(--text-primary) !important;
+	border-color: var(--border-divider) !important;
+}
+
+.MuiTableContainer-root {
+	background-color: var(--bg-paper) !important;
+	border-color: var(--border-divider) !important;
+}
+
+.MuiTableRow-root {
+	border-color: var(--border-divider) !important;
+}
+
+.MuiTableCell-root {
+	border-color: var(--border-divider) !important;
+	color: var(--text-primary) !important;
+}
+
+.MuiTableCell-head {
+	background-color: var(--action-hover) !important;
+	color: var(--text-secondary) !important;
+}
+
+.MuiDivider-root {
+	border-color: var(--border-divider) !important;
+}
+
+/* Real-Time Live Accent Cascade for all buttons, chips, indicators, and controls */
+.MuiButton-contained:not(.MuiButton-containedSecondary):not(.MuiButton-containedError):not(.MuiButton-containedWarning):not(.MuiButton-containedSuccess),
+.MuiButton-containedPrimary {
+	background-color: var(--primary-main) !important;
+	color: #ffffff !important;
+}
+
+.MuiButton-contained:not(.MuiButton-containedSecondary):not(.MuiButton-containedError):not(.MuiButton-containedWarning):not(.MuiButton-containedSuccess):hover,
+.MuiButton-containedPrimary:hover {
+	background-color: var(--primary-hover, var(--primary-main)) !important;
+	filter: brightness(0.92);
+}
+
+.MuiButton-outlinedPrimary,
+.MuiButton-outlined:not(.MuiButton-outlinedSecondary):not(.MuiButton-outlinedError) {
+	color: var(--primary-main) !important;
+	border-color: var(--primary-main) !important;
+}
+
+.MuiButton-textPrimary {
+	color: var(--primary-main) !important;
+}
+
+.MuiIconButton-colorPrimary {
+	color: var(--primary-main) !important;
+}
+
+.MuiSvgIcon-colorPrimary {
+	color: var(--primary-main) !important;
+}
+
+.MuiChip-colorPrimary,
+.MuiChip-filledPrimary {
+	background-color: var(--primary-main) !important;
+	color: #ffffff !important;
+}
+
+.MuiChip-outlinedPrimary {
+	color: var(--primary-main) !important;
+	border-color: var(--primary-main) !important;
+}
+
+.MuiCircularProgress-colorPrimary {
+	color: var(--primary-main) !important;
+}
+
+.MuiLinearProgress-bar,
+.MuiLinearProgress-barColorPrimary {
+	background-color: var(--primary-main) !important;
+}
+
+.MuiCheckbox-colorPrimary.Mui-checked,
+.MuiCheckbox-root.Mui-checked {
+	color: var(--primary-main) !important;
+}
+
+.MuiRadio-colorPrimary.Mui-checked,
+.MuiRadio-root.Mui-checked {
+	color: var(--primary-main) !important;
+}
+
+.MuiSwitch-switchBase.Mui-checked {
+	color: var(--primary-main) !important;
+}
+
+.MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track {
+	background-color: var(--primary-main) !important;
+	opacity: 0.7 !important;
+}
+
+.MuiTab-root.Mui-selected {
+	color: var(--primary-main) !important;
+}
+
+.MuiTabs-indicator {
+	background-color: var(--primary-main) !important;
+}
+
+.MuiToggleButton-root.Mui-selected {
+	color: var(--primary-main) !important;
+	background-color: var(--action-selected) !important;
+}
+
+.MuiBadge-badge {
+	background-color: var(--primary-main) !important;
+	color: #ffffff !important;
+}
+
+.MuiPaginationItem-root.Mui-selected {
+	background-color: var(--primary-main) !important;
+	color: #ffffff !important;
+}
+
 
 a:not(.default-link) {
 	text-decoration: none;
 	color: inherit;
-	transition: all 0.2s ease;
+	transition: all 0.15s ease;
 }
 
 a:not(.default-link):hover {
@@ -32,26 +227,21 @@ a:not(.default-link):hover {
 }
 
 ::-webkit-scrollbar-track {
-	background: #080e1a;
+	background: var(--scrollbar-track, #080e1a);
 }
 
 ::-webkit-scrollbar-thumb {
-	background: #1e293b;
+	background: var(--scrollbar-thumb, #1e293b);
 	border-radius: 4px;
-	border: 2px solid #080e1a;
+	border: 2px solid var(--scrollbar-track, #080e1a);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: #334155;
-}
-
-/* Animations */
-.MuiPaper-root {
-	transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+	background: var(--primary-main, #6366f1);
 }
 
 .MuiButton-root {
-	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+	transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 .MuiButton-root:active {

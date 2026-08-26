@@ -21,8 +21,10 @@ import { useNavigate } from '@solidjs/router'
 import API from '../../api'
 import { alertStore } from '../../components/AlertStack'
 import SetupGuideDialog from '../../components/SetupGuideDialog'
+import { checkAdmin } from '../../common/auth_guard'
 
 const StorageWorkerCreateForm = () => {
+	checkAdmin()
 	const [storages, setStorages] = createSignal([])
 	const [selectedStorage, setSelectedStorage] = createSignal('')
 	const [tokenValue, setTokenValue] = createSignal('')
@@ -33,6 +35,7 @@ const StorageWorkerCreateForm = () => {
 	const navigate = useNavigate()
 
 	onMount(async () => {
+		if (!checkAdmin()) return
 		try {
 			const res = await API.storages.listStorages()
 			setStorages(res.storages || [])

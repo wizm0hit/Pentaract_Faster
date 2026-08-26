@@ -73,10 +73,11 @@ const FileInfoDialog = (props) => {
 			fullWidth
 			PaperProps={{
 				sx: {
-					borderRadius: 3,
-					background: 'linear-gradient(135deg, #0b1320 0%, #152238 100%)',
-					color: '#f8fafc',
-					border: '1px solid rgba(255, 255, 255, 0.1)',
+					borderRadius: '12px',
+					bgcolor: 'background.paper',
+					color: 'text.primary',
+					border: '1px solid',
+					borderColor: 'divider',
 				},
 			}}
 		>
@@ -85,29 +86,30 @@ const FileInfoDialog = (props) => {
 					display: 'flex',
 					alignItems: 'center',
 					justifyContent: 'space-between',
-					borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+					borderBottom: '1px solid',
+					borderColor: 'divider',
 					pb: 2,
 				}}
 			>
 				<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
 					<Box
 						sx={{
-							width: 36,
-							height: 36,
-							borderRadius: 2,
-							background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+							width: 34,
+							height: 34,
+							borderRadius: '8px',
+							bgcolor: 'success.main',
 							display: 'flex',
 							alignItems: 'center',
 							justifyContent: 'center',
 						}}
 					>
-						<ShieldIcon sx={{ color: 'white', fontSize: 20 }} />
+						<ShieldIcon sx={{ color: 'white', fontSize: 18 }} />
 					</Box>
 					<Box>
-						<Typography variant="h6" sx={{ fontWeight: 700, color: '#f8fafc' }}>
+						<Typography variant="subtitle1" sx={{ fontWeight: 600, color: 'text.primary' }}>
 							{props.file?.name}
 						</Typography>
-						<Typography variant="caption" sx={{ color: '#94a3b8' }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary' }}>
 							Encrypted File & AES-256-GCM Chunk Inspector
 						</Typography>
 					</Box>
@@ -116,10 +118,11 @@ const FileInfoDialog = (props) => {
 					label="AES-256-GCM"
 					size="small"
 					sx={{
-						backgroundColor: 'rgba(16, 185, 129, 0.15)',
-						color: '#10b981',
-						fontWeight: 700,
-						border: '1px solid rgba(16, 185, 129, 0.3)',
+						bgcolor: 'action.hover',
+						color: 'success.main',
+						fontWeight: 600,
+						border: '1px solid',
+						borderColor: 'divider',
 					}}
 				/>
 			</DialogTitle>
@@ -130,18 +133,19 @@ const FileInfoDialog = (props) => {
 					<Paper
 						sx={{
 							p: 2,
-							borderRadius: 2,
-							backgroundColor: 'rgba(255, 255, 255, 0.03)',
-							border: '1px solid rgba(255, 255, 255, 0.06)',
+							borderRadius: '8px',
+							bgcolor: 'action.hover',
+							border: '1px solid',
+							borderColor: 'divider',
 						}}
 					>
-						<Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600 }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
 							File Size
 						</Typography>
-						<Typography variant="h6" sx={{ fontWeight: 700, color: '#f8fafc' }}>
+						<Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
 							{convertSize(props.file?.size || 0)}
 						</Typography>
-						<Typography variant="caption" sx={{ color: '#64748b' }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary' }}>
 							{props.file?.size?.toLocaleString()} bytes
 						</Typography>
 					</Paper>
@@ -149,18 +153,19 @@ const FileInfoDialog = (props) => {
 					<Paper
 						sx={{
 							p: 2,
-							borderRadius: 2,
-							backgroundColor: 'rgba(255, 255, 255, 0.03)',
-							border: '1px solid rgba(255, 255, 255, 0.06)',
+							borderRadius: '8px',
+							bgcolor: 'action.hover',
+							border: '1px solid',
+							borderColor: 'divider',
 						}}
 					>
-						<Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600 }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
 							Encrypted Chunks
 						</Typography>
-						<Typography variant="h6" sx={{ fontWeight: 700, color: '#38bdf8' }}>
+						<Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.main' }}>
 							{detailedInfo()?.chunks?.length || props.file?.chunks_count || 1} Chunks
 						</Typography>
-						<Typography variant="caption" sx={{ color: '#64748b' }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary' }}>
 							5 MB standard slice
 						</Typography>
 					</Paper>
@@ -168,18 +173,19 @@ const FileInfoDialog = (props) => {
 					<Paper
 						sx={{
 							p: 2,
-							borderRadius: 2,
-							backgroundColor: 'rgba(255, 255, 255, 0.03)',
-							border: '1px solid rgba(255, 255, 255, 0.06)',
+							borderRadius: '8px',
+							bgcolor: 'action.hover',
+							border: '1px solid',
+							borderColor: 'divider',
 						}}
 					>
-						<Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600 }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
 							Cryptographic Standard
 						</Typography>
-						<Typography variant="h6" sx={{ fontWeight: 700, color: '#10b981', fontSize: '1.05rem' }}>
+						<Typography variant="h6" sx={{ fontWeight: 700, color: 'success.main', fontSize: '1.05rem' }}>
 							AES-256-GCM
 						</Typography>
-						<Typography variant="caption" sx={{ color: '#64748b' }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary' }}>
 							Open-Source NIST SP 800-38D
 						</Typography>
 					</Paper>
@@ -189,15 +195,16 @@ const FileInfoDialog = (props) => {
 				<Paper
 					sx={{
 						p: 2,
-						borderRadius: 2,
-						background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%)',
-						border: '1px solid rgba(99, 102, 241, 0.2)',
+						borderRadius: '8px',
+						bgcolor: 'action.hover',
+						border: '1px solid',
+						borderColor: 'divider',
 					}}
 				>
-					<Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#818cf8', mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+					<Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'primary.main', mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
 						<LockIcon fontSize="small" /> Cryptographic Integrity & Open-Source Specification
 					</Typography>
-					<Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1, fontSize: 13, color: '#cbd5e1' }}>
+					<Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1, fontSize: 13, color: 'text.secondary' }}>
 						<div>&bull; <strong>Cipher Algorithm:</strong> AES-256 in Galois/Counter Mode (GCM)</div>
 						<div>&bull; <strong>Key Length:</strong> 256-bit Symmetric Key (PBKDF2/Scrypt derived)</div>
 						<div>&bull; <strong>Initialization Vector:</strong> 96-bit (12 bytes) CSPRNG unique per chunk</div>
@@ -208,15 +215,15 @@ const FileInfoDialog = (props) => {
 				</Paper>
 
 				{/* Chunks Breakdown Table */}
-				<Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#f8fafc', mt: 1 }}>
+				<Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.primary', mt: 1 }}>
 					Encrypted Chunks Breakdown
 				</Typography>
 
 				<Show
 					when={!loading() && detailedInfo()?.chunks?.length}
 					fallback={
-						<Box sx={{ p: 4, textAlign: 'center', color: '#94a3b8' }}>
-							{loading() ? <CircularProgress size={28} sx={{ color: '#6366f1' }} /> : 'Loading encrypted chunk layout...'}
+						<Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
+							{loading() ? <CircularProgress size={28} sx={{ color: 'primary.main' }} /> : 'Loading encrypted chunk layout...'}
 						</Box>
 					}
 				>
@@ -224,14 +231,15 @@ const FileInfoDialog = (props) => {
 						component={Paper}
 						sx={{
 							maxHeight: 260,
-							backgroundColor: 'rgba(0, 0, 0, 0.25)',
-							border: '1px solid rgba(255, 255, 255, 0.08)',
-							borderRadius: 2,
+							bgcolor: 'background.paper',
+							border: '1px solid',
+							borderColor: 'divider',
+							borderRadius: '8px',
 						}}
 					>
 						<Table size="small" stickyHeader>
 							<TableHead>
-								<TableRow sx={{ '& th': { backgroundColor: '#0d1527', color: '#94a3b8', fontWeight: 700 } }}>
+								<TableRow sx={{ '& th': { bgcolor: 'action.hover', color: 'text.secondary', fontWeight: 600 } }}>
 									<TableCell>Chunk</TableCell>
 									<TableCell>Encrypted Size</TableCell>
 									<TableCell>IV (12B) / Tag (16B)</TableCell>
@@ -242,12 +250,12 @@ const FileInfoDialog = (props) => {
 							<TableBody>
 								<For each={detailedInfo()?.chunks}>
 									{(chunk) => (
-										<TableRow sx={{ '& td': { color: '#cbd5e1', borderColor: 'rgba(255,255,255,0.05)' } }}>
+										<TableRow sx={{ '& td': { color: 'text.primary', borderColor: 'divider' } }}>
 											<TableCell>
 												<Chip
 													label={`#${chunk.index + 1}`}
 													size="small"
-													sx={{ backgroundColor: 'rgba(99, 102, 241, 0.2)', color: '#818cf8', fontWeight: 700 }}
+													sx={{ bgcolor: 'action.hover', color: 'primary.main', fontWeight: 600 }}
 												/>
 											</TableCell>
 											<TableCell>{convertSize(chunk.encrypted_size)}</TableCell>

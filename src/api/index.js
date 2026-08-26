@@ -78,6 +78,18 @@ const login = async (email, password) => {
 }
 
 /**
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<TokenData>}
+ */
+const register = async (email, password) => {
+	return await apiRequest('/auth/register', 'post', undefined, {
+		email,
+		password,
+	})
+}
+
+/**
  * @returns {Promise<{ user: { id: string, email: string, role: string } }>}
  */
 const getMe = async () => {
@@ -400,6 +412,13 @@ const getDownloadUrl = (storage_id, path, token = null) => {
 	return `${API_BASE}/storages/${storage_id}/files/download/${encodedPath}?token=${encodeURIComponent(rawToken)}`
 }
 
+/** Generates an authenticated, range-capable URL for native image/video media. */
+const getMediaUrl = (storage_id, path, token = null) => {
+	const encodedPath = encodePath(path)
+	const rawToken = token || getRawAuthToken() || ''
+	return `${API_BASE}/storages/${storage_id}/files/media/${encodedPath}?token=${encodeURIComponent(rawToken)}`
+}
+
 /**
  * @param {string} storage_id
  * @param {string} path
@@ -429,6 +448,22 @@ const deleteFile = async (storage_id, path) => {
 	)
 }
 
+const getSystemInfo = async () => {
+	return await apiRequest('/admin/system_info', 'get', getAuthToken())
+}
+
+const clearCache = async () => {
+	return await apiRequest('/admin/clear_cache', 'post', getAuthToken())
+}
+
+const testTelegramWorkers = async () => {
+	return await apiRequest('/admin/test_telegram', 'post', getAuthToken())
+}
+
+const restoreSystemBackup = async (backupData) => {
+	return await apiRequest('/system/restore', 'post', getAuthToken(), backupData)
+}
+
 function getRawAuthToken() {
 	const [store] = createLocalStore()
 	if (store && store.access_token) {
@@ -455,9 +490,14 @@ const API = {
 		createUser: createAdminUser,
 		resetPassword: resetUserPassword,
 		deleteUser: deleteAdminUser,
+		getSystemInfo,
+		clearCache,
+		testTelegramWorkers,
+		restoreBackup: restoreSystemBackup,
 	},
 	auth: {
 		login,
+		register,
 		me: getMe,
 		getToken: getRawAuthToken,
 	},
@@ -489,6 +529,7 @@ const API = {
 		getFileInfo,
 		download,
 		getDownloadUrl,
+		getMediaUrl,
 		deleteFile,
 	},
 }

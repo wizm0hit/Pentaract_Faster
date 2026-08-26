@@ -26,8 +26,10 @@ import { useNavigate } from '@solidjs/router'
 import API from '../../api'
 import { alertStore } from '../../components/AlertStack'
 import ActionConfirmDialog from '../../components/ActionConfirmDialog'
+import { checkAdmin } from '../../common/auth_guard'
 
 const StorageWorkers = () => {
+	checkAdmin()
 	const { addAlert } = alertStore
 	const [storageWorkers, setStorageWorkers] = createSignal([])
 	const [visibleTokens, setVisibleTokens] = createSignal({})
@@ -44,7 +46,11 @@ const StorageWorkers = () => {
 		}
 	}
 
-	onMount(fetchStorageWorkers)
+	onMount(() => {
+		if (checkAdmin()) {
+			fetchStorageWorkers()
+		}
+	})
 
 	const toggleTokenVisibility = (id) => {
 		setVisibleTokens((prev) => ({
@@ -106,16 +112,16 @@ const StorageWorkers = () => {
 			>
 				<Box>
 					<Typography
-						variant="h4"
+						variant="h5"
 						sx={{
-							fontWeight: 800,
+							fontWeight: 700,
 							letterSpacing: '-0.02em',
-							color: '#f8fafc',
+							color: 'text.primary',
 						}}
 					>
 						Storage Workers
 					</Typography>
-					<Typography variant="body2" sx={{ color: '#94a3b8', mt: 0.5 }}>
+					<Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.25 }}>
 						Active Telegram Bot cluster instances for parallel multi-chunk streaming & upload dispatch.
 					</Typography>
 				</Box>
@@ -125,14 +131,11 @@ const StorageWorkers = () => {
 					variant="contained"
 					startIcon={<AddIcon />}
 					sx={{
-						background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
-						color: 'white',
 						textTransform: 'none',
-						fontWeight: 700,
-						borderRadius: 2,
-						px: 2.5,
-						py: 1,
-						boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+						fontWeight: 600,
+						borderRadius: '8px',
+						px: 2,
+						py: 0.8,
 					}}
 				>
 					Register Storage Worker
@@ -142,11 +145,12 @@ const StorageWorkers = () => {
 			{/* Info Paper */}
 			<Paper
 				sx={{
-					p: 2.5,
+					p: 2,
 					mb: 3,
-					borderRadius: 2.5,
-					background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(56, 189, 248, 0.05) 100%)',
-					border: '1px solid rgba(99, 102, 241, 0.2)',
+					borderRadius: '10px',
+					bgcolor: 'background.paper',
+					border: '1px solid',
+					borderColor: 'divider',
 					display: 'flex',
 					alignItems: 'center',
 					justifyContent: 'space-between',
@@ -155,12 +159,12 @@ const StorageWorkers = () => {
 				}}
 			>
 				<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-					<HubIcon sx={{ color: '#818cf8', fontSize: 24 }} />
+					<HubIcon sx={{ color: 'primary.main', fontSize: 22 }} />
 					<Box>
-						<Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#f8fafc' }}>
+						<Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.primary' }}>
 							High-Speed Multi-Bot Chunking Engine
 						</Typography>
-						<Typography variant="caption" sx={{ color: '#94a3b8' }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary' }}>
 							Files are automatically sliced and dispatched across active worker bots in round-robin fashion to maximize throughput.
 						</Typography>
 					</Box>
@@ -168,16 +172,17 @@ const StorageWorkers = () => {
 				<Chip
 					label={`${storageWorkers().length} Active Nodes`}
 					size="small"
-					sx={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontWeight: 700 }}
+					sx={{ bgcolor: 'action.hover', color: 'success.main', fontWeight: 600 }}
 				/>
 			</Paper>
 
 			{/* Workers Table */}
 			<Paper
 				sx={{
-					borderRadius: 3,
-					backgroundColor: '#0d1527',
-					border: '1px solid rgba(255, 255, 255, 0.08)',
+					borderRadius: '12px',
+					bgcolor: 'background.paper',
+					border: '1px solid',
+					borderColor: 'divider',
 					overflow: 'hidden',
 				}}
 			>
@@ -187,17 +192,18 @@ const StorageWorkers = () => {
 							when={storageWorkers().length > 0}
 							fallback={
 								<Box sx={{ p: 6, textAlign: 'center' }}>
-									<SmartToyIcon sx={{ fontSize: 48, color: '#475569', mb: 1.5 }} />
-									<Typography variant="h6" sx={{ color: '#f8fafc', fontWeight: 600 }}>
+									<SmartToyIcon sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
+									<Typography variant="subtitle1" sx={{ color: 'text.primary', fontWeight: 600 }}>
 										No Storage Workers Registered
 									</Typography>
-									<Typography variant="body2" sx={{ color: '#94a3b8', mb: 3, maxWidth: 420, mx: 'auto' }}>
+									<Typography variant="body2" sx={{ color: 'text.secondary', mb: 2.5, maxWidth: 420, mx: 'auto' }}>
 										Create a Telegram Bot via @BotFather and register its HTTP token to enable distributed file uploading.
 									</Typography>
 									<Button
 										onClick={() => navigate('/storage_workers/register')}
 										variant="contained"
-										sx={{ background: '#6366f1', textTransform: 'none', fontWeight: 600 }}
+										size="small"
+										sx={{ textTransform: 'none', fontWeight: 600 }}
 									>
 										Register Worker
 									</Button>
@@ -205,7 +211,7 @@ const StorageWorkers = () => {
 							}
 						>
 							<TableHead>
-								<TableRow sx={{ '& th': { backgroundColor: '#131e36', color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(255,255,255,0.06)' } }}>
+								<TableRow sx={{ '& th': { bgcolor: 'action.hover', color: 'text.secondary', fontWeight: 600, borderColor: 'divider' } }}>
 									<TableCell>Worker Node Name</TableCell>
 									<TableCell>Status</TableCell>
 									<TableCell>Telegram Bot API Token</TableCell>
@@ -217,21 +223,21 @@ const StorageWorkers = () => {
 								{mapArray(storageWorkers, (sw) => (
 									<TableRow
 										sx={{
-											'& td': { color: '#cbd5e1', borderColor: 'rgba(255,255,255,0.05)', py: 2 },
+											'& td': { color: 'text.primary', borderColor: 'divider', py: 1.5 },
 										}}
 									>
-										<TableCell component="th" scope="row" sx={{ fontWeight: 700, color: '#f8fafc !important' }}>
+										<TableCell component="th" scope="row" sx={{ fontWeight: 600 }}>
 											<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
 												<Box
 													sx={{
-														width: 32,
-														height: 32,
-														borderRadius: 1.5,
-														backgroundColor: 'rgba(56, 189, 248, 0.15)',
+														width: 28,
+														height: 28,
+														borderRadius: '6px',
+														bgcolor: 'action.hover',
 														display: 'flex',
 														alignItems: 'center',
 														justifyContent: 'center',
-														color: '#38bdf8',
+														color: 'primary.main',
 													}}
 												>
 													<SmartToyIcon fontSize="small" />
@@ -241,7 +247,7 @@ const StorageWorkers = () => {
 										</TableCell>
 										<TableCell>
 											<Chip
-												icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#10b981 !important' }} />}
+												icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: 'success.main !important' }} />}
 												label="Operational"
 												size="small"
 												sx={{ backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 700, fontSize: 11 }}

@@ -1,5 +1,16 @@
 {
-  "users": [],
+  "users": [
+    [
+      "admin@pentaract.local",
+      {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@pentaract.local",
+        "passwordHash": "6c5f9d3c3a99f0e6f76c4edb37550b2f:916fd831924bce040d03ff5363dc1921bee2d62e0a5afca82872186c7cead9a7d5ffd25f525584e3c518cc5bbad74cc8a4189491a315d472ced004699c86a31a",
+        "role": "admin",
+        "createdAt": "2026-08-26T06:44:32.304Z"
+      }
+    ]
+  ],
   "storages": [
     [
       "873dfbdf-5797-497c-affd-049ce9727923",
@@ -199,6 +210,34 @@
                 "telegramMessageId": 5
               }
             ]
+          }
+        ],
+        [
+          "1787656418771.jpg",
+          {
+            "path": "1787656418771.jpg",
+            "name": "1787656418771.jpg",
+            "is_file": true,
+            "size": 39321,
+            "mimeType": "image/jpeg",
+            "createdAt": "2026-08-26T06:50:59.695Z",
+            "encryptionAlgorithm": "AES-256-GCM (NIST SP 800-38D Authenticated Encryption)",
+            "chunksCount": 1,
+            "chunkSize": 5242880,
+            "chunks": [
+              {
+                "index": 0,
+                "totalChunks": 1,
+                "rawSize": 39321,
+                "encryptedSize": 39321,
+                "iv": "6102802fb7961c72e5e83d78",
+                "authTag": "b249de4015578c84062710d35cd51b02",
+                "sha256": "b6fc2f39a858b77d7f8c4a669e21cb304b84dae10f6b3a72844a0868bfd53b49",
+                "workerName": "Primary Telegram Worker",
+                "telegramMessageId": 299
+              }
+            ],
+            "isUploading": false
           }
         ]
       ]

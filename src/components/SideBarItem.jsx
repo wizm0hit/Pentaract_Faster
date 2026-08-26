@@ -31,17 +31,18 @@ const SideBarItem = (props) => {
 			<A href={props.link} style={{ textDecoration: 'none', color: 'inherit' }}>
 				<ListItemButton
 					sx={{
-						minHeight: 46,
-						borderRadius: 2,
+						minHeight: 44,
+						borderRadius: '8px',
 						justifyContent: props.isFull ? 'initial' : 'center',
 						px: 2,
-						backgroundColor: isActive() ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
-						border: isActive() ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent',
-						color: isActive() ? '#818cf8' : '#94a3b8',
-						transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+						bgcolor: isActive() ? 'var(--action-selected)' : 'transparent',
+						border: '1px solid',
+						borderColor: isActive() ? 'var(--primary-main)' : 'transparent',
+						color: isActive() ? 'var(--primary-main)' : 'text.secondary',
+						transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
 						'&:hover': {
-							backgroundColor: isActive() ? 'rgba(99, 102, 241, 0.22)' : 'rgba(255, 255, 255, 0.05)',
-							color: '#f8fafc',
+							bgcolor: 'action.hover',
+							color: 'text.primary',
 						},
 					}}
 				>
@@ -50,10 +51,9 @@ const SideBarItem = (props) => {
 							minWidth: 0,
 							mr: props.isFull ? 2 : 'auto',
 							justifyContent: 'center',
-							color: isActive() ? '#818cf8' : '#94a3b8',
+							color: isActive() ? 'var(--primary-main)' : 'text.secondary',
 							'& svg': {
-								fontSize: 22,
-								filter: isActive() ? 'drop-shadow(0 0 6px rgba(99, 102, 241, 0.5))' : 'none',
+								fontSize: 20,
 							},
 						}}
 					>
@@ -63,7 +63,7 @@ const SideBarItem = (props) => {
 						primary={props.text}
 						primaryTypographyProps={{
 							fontSize: 14,
-							fontWeight: isActive() ? 700 : 500,
+							fontWeight: isActive() ? 600 : 500,
 						}}
 						sx={{ display: props.isFull ? 'block' : 'none' }}
 					/>

@@ -8,6 +8,8 @@ import IconButton from '@suid/material/IconButton'
 import Chip from '@suid/material/Chip'
 import Typography from '@suid/material/Typography'
 import Box from '@suid/material/Box'
+import Dialog from '@suid/material/Dialog'
+import DialogContent from '@suid/material/DialogContent'
 import FileIcon from '@suid/icons-material/InsertDriveFileOutlined'
 import FolderIcon from '@suid/icons-material/Folder'
 import MoreVertIcon from '@suid/icons-material/MoreVert'
@@ -16,6 +18,7 @@ import InfoIcon from '@suid/icons-material/Info'
 import DeleteIcon from '@suid/icons-material/Delete'
 import ShieldIcon from '@suid/icons-material/Shield'
 import LockIcon from '@suid/icons-material/Lock'
+import CloseIcon from '@suid/icons-material/Close'
 import { Show, createSignal } from 'solid-js'
 import { useNavigate, useParams } from '@solidjs/router'
 
@@ -25,6 +28,7 @@ import FileInfoDialog from './FileInfo'
 import { alertStore } from './AlertStack'
 import { convertSize } from '../common/size_converter'
 import uploadManager from '../common/uploadManager'
+import createLocalStore from '../../libs'
 
 /**
  * @typedef {Object} FSListItemProps
@@ -40,12 +44,35 @@ import uploadManager from '../common/uploadManager'
  * @param {FSListItemProps} props
  */
 const FSListItem = (props) => {
+	const [store] = createLocalStore()
+	const isAdmin = () => store.user?.role === 'admin'
 	const [moreAnchorEl, setMoreAnchorEl] = createSignal(null)
 	const [isActionConfirmDialogOpened, setIsActionConfirmDialogOpened] = createSignal(false)
 	const [isInfoDialogOpened, setIsInfoDialogOpened] = createSignal(false)
+	const [isMediaPreviewOpened, setIsMediaPreviewOpened] = createSignal(false)
+	const [mediaLoading, setMediaLoading] = createSignal(true)
+	const [mediaError, setMediaError] = createSignal(false)
+	const [previewKey, setPreviewKey] = createSignal(0)
 	const navigate = useNavigate()
 	const params = useParams()
 	const activeStorageId = () => props.storageId || params.id
+	const mediaKind = () => {
+		const name = (props.fsElement.name || '').toLowerCase()
+		if (/\.(avif|bmp|gif|jpe?g|png|svg|webp|ico)$/.test(name)) return 'image'
+		if (/\.(m4v|mov|mp4|ogg|ogv|webm|mkv|avi)$/.test(name)) return 'video'
+		if (/\.(mp3|wav|flac|aac|m4a|oga|opus)$/.test(name)) return 'audio'
+		return null
+	}
+	const mediaUrl = () => {
+		const base = API.files.getMediaUrl(activeStorageId(), props.fsElement.path)
+		return previewKey() > 0 ? `${base}&_k=${previewKey()}` : base
+	}
+
+	const retryMediaStream = () => {
+		setMediaError(false)
+		setMediaLoading(true)
+		setPreviewKey((k) => k + 1)
+	}
 
 	const openMore = () => Boolean(moreAnchorEl())
 
@@ -56,6 +83,10 @@ const FSListItem = (props) => {
 	const handleNavigate = () => {
 		if (!props.fsElement.is_file) {
 			navigate(`/storages/${activeStorageId()}/files/${props.fsElement.path}`)
+		} else if (mediaKind()) {
+			setMediaLoading(true)
+			setMediaError(false)
+			setIsMediaPreviewOpened(true)
 		}
 	}
 
@@ -172,14 +203,14 @@ const FSListItem = (props) => {
 						}
 						primaryTypographyProps={{
 							sx: {
-								fontWeight: props.fsElement.is_file ? 600 : 700,
-								color: '#f8fafc',
+								fontWeight: props.fsElement.is_file ? 500 : 600,
+								color: 'text.primary',
 								fontSize: '0.95rem',
 							},
 						}}
 						secondaryTypographyProps={{
 							sx: {
-								color: '#94a3b8',
+								color: 'text.secondary',
 								fontSize: '0.75rem',
 								mt: 0.25,
 							},
@@ -193,25 +224,27 @@ const FSListItem = (props) => {
 								label={`${props.fsElement.chunks_count || 1} Chunks`}
 								size="small"
 								sx={{
-									backgroundColor: 'rgba(56, 189, 248, 0.12)',
-									color: '#38bdf8',
+									bgcolor: 'action.hover',
+									color: 'text.secondary',
 									fontWeight: 600,
 									fontSize: 11,
 									height: 22,
-									border: '1px solid rgba(56, 189, 248, 0.25)',
+									border: '1px solid',
+									borderColor: 'divider',
 								}}
 							/>
 							<Chip
-								icon={<ShieldIcon sx={{ fontSize: '13px !important', color: '#10b981 !important' }} />}
+								icon={<ShieldIcon sx={{ fontSize: '13px !important', color: 'success.main !important' }} />}
 								label="Encrypted"
 								size="small"
 								sx={{
-									backgroundColor: 'rgba(16, 185, 129, 0.12)',
-									color: '#10b981',
+									bgcolor: 'action.hover',
+									color: 'success.main',
 									fontWeight: 600,
 									fontSize: 11,
 									height: 22,
-									border: '1px solid rgba(16, 185, 129, 0.25)',
+									border: '1px solid',
+									borderColor: 'divider',
 								}}
 							/>
 						</Box>
@@ -225,7 +258,7 @@ const FSListItem = (props) => {
 							size="small"
 							onClick={() => setIsInfoDialogOpened(true)}
 							title="View Encrypted Chunks & Security Info"
-							sx={{ color: '#94a3b8', '&:hover': { color: '#818cf8', backgroundColor: 'rgba(99, 102, 241, 0.1)' } }}
+							sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}
 						>
 							<InfoIcon fontSize="small" />
 						</IconButton>
@@ -233,7 +266,7 @@ const FSListItem = (props) => {
 							size="small"
 							onClick={download}
 							title="Decrypt & Download"
-							sx={{ color: '#94a3b8', '&:hover': { color: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)' } }}
+							sx={{ color: 'text.secondary', '&:hover': { color: 'success.main', bgcolor: 'action.hover' } }}
 						>
 							<DownloadIcon fontSize="small" />
 						</IconButton>
@@ -242,7 +275,7 @@ const FSListItem = (props) => {
 					<IconButton
 						size="small"
 						onClick={(event) => setMoreAnchorEl(event.currentTarget)}
-						sx={{ color: '#94a3b8', '&:hover': { color: '#f8fafc' } }}
+						sx={{ color: 'text.secondary', '&:hover': { color: 'text.primary' } }}
 					>
 						<MoreVertIcon fontSize="small" />
 					</IconButton>
@@ -256,10 +289,11 @@ const FSListItem = (props) => {
 				onClose={handleCloseMore}
 				PaperProps={{
 					sx: {
-						backgroundColor: '#152238',
-						color: '#f8fafc',
-						border: '1px solid rgba(255, 255, 255, 0.1)',
-						borderRadius: 2,
+						bgcolor: 'background.paper',
+						color: 'text.primary',
+						border: '1px solid',
+						borderColor: 'divider',
+						borderRadius: '10px',
 					},
 				}}
 			>
@@ -270,36 +304,40 @@ const FSListItem = (props) => {
 							setIsInfoDialogOpened(true)
 						}}
 					>
-						<ListItemIcon sx={{ color: '#818cf8' }}>
+						<ListItemIcon sx={{ color: 'primary.main' }}>
 							<InfoIcon fontSize="small" />
 						</ListItemIcon>
 						<ListItemText>AES-256 Chunk Inspector</ListItemText>
 					</MenuItem>
 
 					<MenuItem onClick={download}>
-						<ListItemIcon sx={{ color: '#10b981' }}>
+						<ListItemIcon sx={{ color: 'success.main' }}>
 							<DownloadIcon fontSize="small" />
 						</ListItemIcon>
 						<ListItemText>Decrypt & Download</ListItemText>
 					</MenuItem>
 				</Show>
 
-				<MenuItem onClick={openActionConfirmDialog} sx={{ color: '#ef4444' }}>
-					<ListItemIcon sx={{ color: '#ef4444' }}>
-						<DeleteIcon fontSize="small" />
-					</ListItemIcon>
-					<ListItemText>Delete</ListItemText>
-				</MenuItem>
+				<Show when={isAdmin()}>
+					<MenuItem onClick={openActionConfirmDialog} sx={{ color: 'error.main' }}>
+						<ListItemIcon sx={{ color: 'error.main' }}>
+							<DeleteIcon fontSize="small" />
+						</ListItemIcon>
+						<ListItemText>Delete</ListItemText>
+					</MenuItem>
+				</Show>
 			</MenuMUI>
 
-			<ActionConfirmDialog
-				action="Delete"
-				entity="file"
-				actionDescription={`delete ${props.fsElement.name}`}
-				isOpened={isActionConfirmDialogOpened()}
-				onConfirm={deleteFile}
-				onCancel={closeActionConfirmDialog}
-			/>
+			<Show when={isAdmin()}>
+				<ActionConfirmDialog
+					action="Delete"
+					entity="file"
+					actionDescription={`delete ${props.fsElement.name}`}
+					isOpened={isActionConfirmDialogOpened()}
+					onConfirm={deleteFile}
+					onCancel={closeActionConfirmDialog}
+				/>
+			</Show>
 
 			<FileInfoDialog
 				file={props.fsElement}
@@ -308,6 +346,139 @@ const FSListItem = (props) => {
 				onClose={() => setIsInfoDialogOpened(false)}
 				onDownload={props.fsElement.is_file ? download : undefined}
 			/>
+
+			<Dialog
+				open={isMediaPreviewOpened()}
+				onClose={() => setIsMediaPreviewOpened(false)}
+				maxWidth="lg"
+				fullWidth
+				PaperProps={{
+					sx: {
+						backgroundColor: 'background.paper',
+						color: 'text.primary',
+						borderRadius: '12px',
+						border: '1px solid',
+						borderColor: 'divider',
+						overflow: 'hidden',
+					},
+				}}
+			>
+				<Box
+					sx={{
+						display: 'flex',
+						alignItems: 'center',
+						justifyContent: 'space-between',
+						px: 2.5,
+						py: 1.5,
+						borderBottom: '1px solid',
+						borderColor: 'divider',
+					}}
+				>
+					<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+						<Chip
+							label={props.fsElement.size ? convertSize(props.fsElement.size) : 'Media'}
+							size="small"
+							sx={{ height: '22px', fontSize: '0.72rem', fontWeight: 600, bgcolor: 'action.hover' }}
+						/>
+						<Typography noWrap sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+							{props.fsElement.name}
+						</Typography>
+					</Box>
+					<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+						<Button
+							size="small"
+							startIcon={<DownloadIcon />}
+							onClick={download}
+							sx={{ textTransform: 'none', fontSize: '0.8rem' }}
+						>
+							Download
+						</Button>
+						<IconButton aria-label="Close preview" onClick={() => setIsMediaPreviewOpened(false)} size="small">
+							<CloseIcon fontSize="small" />
+						</IconButton>
+					</Box>
+				</Box>
+
+				<DialogContent
+					sx={{
+						p: 0,
+						display: 'flex',
+						flexDirection: 'column',
+						alignItems: 'center',
+						justifyContent: 'center',
+						minHeight: '280px',
+						bgcolor: '#000000',
+						position: 'relative',
+					}}
+				>
+					<Show when={mediaError()}>
+						<Box sx={{ p: 4, textAlign: 'center', color: '#f8fafc' }}>
+							<Typography sx={{ mb: 1, fontWeight: 600 }}>Media Stream Disconnected</Typography>
+							<Typography variant="body2" sx={{ color: '#94a3b8', mb: 2 }}>
+								Could not stream real-time chunks. The server may have reconnected.
+							</Typography>
+							<Button variant="contained" size="small" onClick={retryMediaStream}>
+								Retry Streaming
+							</Button>
+						</Box>
+					</Show>
+
+					<Show when={!mediaError() && mediaKind() === 'image'}>
+						<img
+							src={mediaUrl()}
+							alt={props.fsElement.name}
+							onLoad={() => setMediaLoading(false)}
+							onError={() => {
+								setMediaLoading(false)
+								setMediaError(true)
+							}}
+							style={{
+								display: 'block',
+								'max-width': '100%',
+								'max-height': '80vh',
+								'object-fit': 'contain',
+							}}
+						/>
+					</Show>
+
+					<Show when={!mediaError() && mediaKind() === 'video'}>
+						<video
+							src={mediaUrl()}
+							controls
+							autoplay
+							playsinline
+							preload="metadata"
+							onCanPlay={() => setMediaLoading(false)}
+							onError={() => {
+								setMediaLoading(false)
+								setMediaError(true)
+							}}
+							style={{
+								display: 'block',
+								width: '100%',
+								'max-height': '80vh',
+								background: '#000',
+							}}
+						/>
+					</Show>
+
+					<Show when={!mediaError() && mediaKind() === 'audio'}>
+						<Box sx={{ p: 4, width: '100%', maxWidth: 500, textAlign: 'center' }}>
+							<audio
+								src={mediaUrl()}
+								controls
+								autoplay
+								onCanPlay={() => setMediaLoading(false)}
+								onError={() => {
+									setMediaLoading(false)
+									setMediaError(true)
+								}}
+								style={{ width: '100%' }}
+							/>
+						</Box>
+					</Show>
+				</DialogContent>
+			</Dialog>
 		</>
 	)
 }

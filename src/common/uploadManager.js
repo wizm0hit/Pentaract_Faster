@@ -196,6 +196,13 @@ export const uploadManager = createRoot(() => {
 				)
 
 				bytesTransferred += currentChunkBytes
+				// Refresh file browsers as soon as the first (and each later) slice is
+				// accepted, so an in-progress video can be opened at its stable media URL.
+				window.dispatchEvent(
+					new CustomEvent('pentaract:file_uploaded', {
+						detail: { storageId, targetPath, fileName: file.name, inProgress: i + 1 < totalChunks },
+					})
+				)
 				const workerName = response?.worker_name || 'Telegram Worker'
 				const tgMsgId = response?.telegram_message_id
 

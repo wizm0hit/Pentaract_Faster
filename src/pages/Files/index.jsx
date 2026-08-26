@@ -36,9 +36,12 @@ import { alertStore } from '../../components/AlertStack'
 import uploadManager from '../../common/uploadManager'
 import Access from '../../components/Access'
 import GrantAccess from '../../components/GrantAccess'
+import createLocalStore from '../../../libs'
 
 const Files = () => {
 	const { addAlert } = alertStore
+	const [store] = createLocalStore()
+	const isAdmin = () => store.user?.role === 'admin'
 	const [fsLayer, setFsLayer] = createSignal([])
 	const [storage, setStorage] = createSignal()
 	const [isAccessPage, setIsAccessPage] = createSignal(false)
@@ -59,6 +62,7 @@ const Files = () => {
 	let uploadFileInputElement
 
 	const fetchUsersWithAccess = async () => {
+		if (!isAdmin()) return
 		try {
 			const usersRes = await API.access.listUsersWithAccess(params.id)
 			setUsers(usersRes || [])
@@ -105,7 +109,11 @@ const Files = () => {
 	}
 
 	onMount(() => {
-		Promise.all([fetchStorage(), fetchFSLayer(), fetchUsersWithAccess()]).then()
+		const tasks = [fetchStorage(), fetchFSLayer()]
+		if (isAdmin()) {
+			tasks.push(fetchUsersWithAccess())
+		}
+		Promise.all(tasks).then()
 		window.addEventListener('popstate', reload, false)
 		window.addEventListener('pentaract:file_uploaded', handleUploadedEvent, false)
 	})
@@ -264,18 +272,19 @@ const Files = () => {
 			<Show when={isDownloading()}>
 				<Paper
 					sx={{
-						p: 2.5,
+						p: 2,
 						mb: 3,
-						background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.15) 0%, rgba(99, 102, 241, 0.1) 100%)',
-						border: '1px solid rgba(56, 189, 248, 0.3)',
-						borderRadius: 2.5,
+						bgcolor: 'background.paper',
+						border: '1px solid',
+						borderColor: 'primary.main',
+						borderRadius: '10px',
 					}}
 				>
 					<Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-						<Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#f8fafc' }}>
+						<Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.primary' }}>
 							Decrypting & Downloading: {downloadingFileName()}
 						</Typography>
-						<Typography variant="caption" sx={{ fontWeight: 700, color: '#38bdf8', fontFamily: 'monospace' }}>
+						<Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>
 							{Math.round(downloadProgress())}%
 						</Typography>
 					</Box>
@@ -283,12 +292,11 @@ const Files = () => {
 						variant="determinate"
 						value={downloadProgress()}
 						sx={{
-							height: 8,
-							borderRadius: 4,
-							backgroundColor: 'rgba(255, 255, 255, 0.1)',
+							height: 6,
+							borderRadius: '3px',
+							bgcolor: 'action.hover',
 							'& .MuiLinearProgress-bar': {
-								borderRadius: 4,
-								background: 'linear-gradient(90deg, #38bdf8 0%, #6366f1 100%)',
+								borderRadius: '3px',
 							},
 						}}
 					/>
@@ -298,11 +306,12 @@ const Files = () => {
 			{/* Top Control Bar */}
 			<Paper
 				sx={{
-					p: 2.5,
+					p: 2,
 					mb: 3,
-					borderRadius: 3,
-					backgroundColor: '#0d1527',
-					border: '1px solid rgba(255, 255, 255, 0.08)',
+					borderRadius: '12px',
+					bgcolor: 'background.paper',
+					border: '1px solid',
+					borderColor: 'divider',
 					display: 'flex',
 					flexDirection: { xs: 'column', md: 'row' },
 					alignItems: { xs: 'stretch', md: 'center' },
@@ -312,38 +321,40 @@ const Files = () => {
 			>
 				{/* View switcher and Search */}
 				<Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-					<ToggleButtonGroup
-						exclusive
-						value={isAccessPage()}
-						onChange={(_, val) => val !== null && setIsAccessPage(val)}
-						sx={{
-							backgroundColor: 'rgba(255, 255, 255, 0.03)',
-							borderRadius: 2,
-							border: '1px solid rgba(255, 255, 255, 0.08)',
-							'& .MuiToggleButton-root': {
-								color: '#94a3b8',
-								textTransform: 'none',
-								fontWeight: 600,
-								px: 2,
-								py: 0.75,
-								'&.Mui-selected': {
-									color: '#f8fafc',
-									backgroundColor: 'rgba(99, 102, 241, 0.2)',
+					<Show when={isAdmin()}>
+						<ToggleButtonGroup
+							exclusive
+							value={isAccessPage()}
+							onChange={(_, val) => val !== null && setIsAccessPage(val)}
+							sx={{
+								borderRadius: '8px',
+								border: '1px solid',
+								borderColor: 'divider',
+								'& .MuiToggleButton-root': {
+									color: 'text.secondary',
+									textTransform: 'none',
+									fontWeight: 600,
+									px: 2,
+									py: 0.6,
+									'&.Mui-selected': {
+										color: 'primary.main',
+										bgcolor: 'action.selected',
+									},
 								},
-							},
-						}}
-					>
-						<ToggleButton value={false}>
-							<FolderOpenIcon fontSize="small" sx={{ mr: 1, color: '#818cf8' }} />
-							Files Explorer
-						</ToggleButton>
-						<ToggleButton value={true}>
-							<LockIcon fontSize="small" sx={{ mr: 1, color: '#f59e0b' }} />
-							Access Control
-						</ToggleButton>
-					</ToggleButtonGroup>
+							}}
+						>
+							<ToggleButton value={false}>
+								<FolderOpenIcon fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
+								Files Explorer
+							</ToggleButton>
+							<ToggleButton value={true}>
+								<LockIcon fontSize="small" sx={{ mr: 1, color: 'warning.main' }} />
+								Access Control
+							</ToggleButton>
+						</ToggleButtonGroup>
+					</Show>
 
-					<Show when={!isAccessPage()}>
+					<Show when={!isAccessPage() || !isAdmin()}>
 						<TextField
 							size="small"
 							placeholder="Search in folder..."
@@ -352,13 +363,12 @@ const Files = () => {
 							InputProps={{
 								startAdornment: (
 									<InputAdornment position="start">
-										<SearchIcon sx={{ color: '#64748b', fontSize: 20 }} />
+										<SearchIcon sx={{ color: 'text.secondary', fontSize: 20 }} />
 									</InputAdornment>
 								),
 								sx: {
-									color: '#f8fafc',
-									backgroundColor: 'rgba(255, 255, 255, 0.03)',
-									borderRadius: 2,
+									color: 'text.primary',
+									borderRadius: '8px',
 									fontSize: 13,
 									width: { xs: '100%', sm: 220 },
 								},
@@ -370,19 +380,17 @@ const Files = () => {
 				{/* Actions */}
 				<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
 					<Show
-						when={!isAccessPage()}
+						when={!isAccessPage() || !isAdmin()}
 						fallback={
-							<Show when={isGrantAccessButtonVisible()}>
+							<Show when={isAdmin() && isGrantAccessButtonVisible()}>
 								<Button
 									variant="contained"
 									startIcon={<PersonAddIcon />}
 									onClick={() => setIsGrantAccessVisible(true)}
 									sx={{
-										background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
-										color: 'white',
 										textTransform: 'none',
 										fontWeight: 600,
-										borderRadius: 2,
+										borderRadius: '8px',
 										px: 2,
 									}}
 								>
@@ -401,13 +409,10 @@ const Files = () => {
 							startIcon={<CreateNewFolderIcon />}
 							onClick={openCreateFolderDialog}
 							sx={{
-								color: '#cbd5e1',
-								borderColor: 'rgba(255, 255, 255, 0.15)',
 								textTransform: 'none',
 								fontWeight: 600,
-								borderRadius: 2,
+								borderRadius: '8px',
 								px: 2,
-								'&:hover': { borderColor: 'rgba(255, 255, 255, 0.3)', backgroundColor: 'rgba(255, 255, 255, 0.05)' },
 							}}
 						>
 							New Folder
@@ -418,13 +423,10 @@ const Files = () => {
 							startIcon={<CloudUploadIcon />}
 							onClick={uploadFileClickHandler}
 							sx={{
-								background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
-								color: 'white',
 								textTransform: 'none',
-								fontWeight: 700,
-								borderRadius: 2,
-								px: 2.5,
-								boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+								fontWeight: 600,
+								borderRadius: '8px',
+								px: 2,
 							}}
 						>
 							Upload Encrypted File
@@ -435,14 +437,16 @@ const Files = () => {
 
 			{/* Main Content Area */}
 			<Show
-				when={!isAccessPage()}
+				when={!isAccessPage() || !isAdmin()}
 				fallback={
-					<Access
-						setIsGrantAccessVisible={setIsGrantAccessVisible}
-						users={users()}
-						onMount={fetchUsersWithAccess}
-						refetchUsers={fetchUsersWithAccess}
-					/>
+					<Show when={isAdmin()}>
+						<Access
+							setIsGrantAccessVisible={setIsGrantAccessVisible}
+							users={users()}
+							onMount={fetchUsersWithAccess}
+							refetchUsers={fetchUsersWithAccess}
+						/>
+					</Show>
 				}
 			>
 				{/* Drag & Drop Overlay Feedback */}
@@ -452,13 +456,14 @@ const Files = () => {
 							p: 4,
 							mb: 3,
 							textAlign: 'center',
-							borderRadius: 3,
-							border: '2px dashed #6366f1',
-							backgroundColor: 'rgba(99, 102, 241, 0.12)',
+							borderRadius: '12px',
+							border: '2px dashed',
+							borderColor: 'primary.main',
+							bgcolor: 'action.hover',
 						}}
 					>
-						<CloudUploadIcon sx={{ fontSize: 48, color: '#818cf8', mb: 1 }} />
-						<Typography variant="h6" sx={{ color: '#f8fafc', fontWeight: 700 }}>
+						<CloudUploadIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+						<Typography variant="subtitle1" sx={{ color: 'text.primary', fontWeight: 600 }}>
 							Drop file to slice & encrypt with AES-256-GCM
 						</Typography>
 					</Paper>
@@ -467,28 +472,30 @@ const Files = () => {
 				{/* File Items List */}
 				<Paper
 					sx={{
-						borderRadius: 3,
-						backgroundColor: '#0d1527',
-						border: '1px solid rgba(255, 255, 255, 0.08)',
-						p: 2,
+						borderRadius: '12px',
+						bgcolor: 'background.paper',
+						border: '1px solid',
+						borderColor: 'divider',
+						p: 1.5,
 					}}
 				>
 					<Show
 						when={filteredFsLayer().length > 0}
 						fallback={
 							<Box sx={{ p: 6, textAlign: 'center' }}>
-								<FolderOpenIcon sx={{ fontSize: 52, color: '#475569', mb: 1.5 }} />
-								<Typography variant="h6" sx={{ color: '#f8fafc', fontWeight: 600 }}>
+								<FolderOpenIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1.5 }} />
+								<Typography variant="subtitle1" sx={{ color: 'text.primary', fontWeight: 600 }}>
 									{searchQuery() ? 'No files match search' : 'This folder is empty'}
 								</Typography>
-								<Typography variant="body2" sx={{ color: '#94a3b8', mb: 3, maxWidth: 400, mx: 'auto' }}>
+								<Typography variant="body2" sx={{ color: 'text.secondary', mb: 2.5, maxWidth: 400, mx: 'auto' }}>
 									Upload any file or drag & drop. Large files are automatically chunked and encrypted with AES-256-GCM.
 								</Typography>
 								<Button
 									variant="contained"
 									startIcon={<CloudUploadIcon />}
 									onClick={uploadFileClickHandler}
-									sx={{ background: '#6366f1', textTransform: 'none', fontWeight: 600 }}
+									size="small"
+									sx={{ textTransform: 'none', fontWeight: 600 }}
 								>
 									Upload First File
 								</Button>

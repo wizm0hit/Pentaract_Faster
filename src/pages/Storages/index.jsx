@@ -27,9 +27,12 @@ import { convertSize } from '../../common/size_converter'
 import { alertStore } from '../../components/AlertStack'
 import ActionConfirmDialog from '../../components/ActionConfirmDialog'
 import OnboardingVaultDialog from '../../components/OnboardingVaultDialog'
+import createLocalStore from '../../../libs'
 
 const Storages = () => {
 	const { addAlert } = alertStore
+	const [store] = createLocalStore()
+	const isAdmin = () => store.user?.role === 'admin'
 	const [storages, setStorages] = createSignal([])
 	const [selectedStorageToDelete, setSelectedStorageToDelete] = createSignal(null)
 	const [onboardingOpen, setOnboardingOpen] = createSignal(false)
@@ -40,8 +43,8 @@ const Storages = () => {
 			const res = await API.storages.listStorages()
 			const list = res.storages || []
 			setStorages(list)
-			// Automatically prompt onboarding popup if 0 storage vaults exist
-			if (list.length === 0) {
+			// Automatically prompt onboarding popup if 0 storage vaults exist and user is admin
+			if (list.length === 0 && isAdmin()) {
 				setOnboardingOpen(true)
 			}
 		} catch (err) {
@@ -83,113 +86,116 @@ const Storages = () => {
 			>
 				<Box>
 					<Typography
-						variant="h4"
+						variant="h5"
 						sx={{
-							fontWeight: 800,
+							fontWeight: 700,
 							letterSpacing: '-0.02em',
-							color: '#f8fafc',
+							color: 'text.primary',
 						}}
 					>
 						Storage Vaults
 					</Typography>
-					<Typography variant="body2" sx={{ color: '#94a3b8', mt: 0.5 }}>
+					<Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.25 }}>
 						Distributed, encrypted cloud storage clusters backed by Telegram Bot MTProto nodes.
 					</Typography>
 				</Box>
 
-				<Button
-					onClick={() => navigate('/storages/register')}
-					variant="contained"
-					startIcon={<AddIcon />}
-					sx={{
-						background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
-						color: 'white',
-						textTransform: 'none',
-						fontWeight: 700,
-						borderRadius: 2,
-						px: 2.5,
-						py: 1,
-						boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
-					}}
-				>
-					New Storage Vault
-				</Button>
+				<Show when={isAdmin()}>
+					<Button
+						onClick={() => navigate('/storages/register')}
+						variant="contained"
+						startIcon={<AddIcon />}
+						sx={{
+							textTransform: 'none',
+							fontWeight: 600,
+							borderRadius: '8px',
+							px: 2,
+							py: 0.8,
+						}}
+					>
+						New Storage Vault
+					</Button>
+				</Show>
 			</Box>
 
 			{/* Metric Cards */}
 			<Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
 				<Paper
 					sx={{
-						p: 2.5,
-						borderRadius: 2.5,
-						backgroundColor: 'rgba(255, 255, 255, 0.03)',
-						border: '1px solid rgba(255, 255, 255, 0.06)',
+						p: 2,
+						borderRadius: '10px',
+						bgcolor: 'background.paper',
+						border: '1px solid',
+						borderColor: 'divider',
 					}}
 				>
-					<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-						<Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
+					<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
 							Total Vaults
 						</Typography>
-						<StorageIcon sx={{ color: '#818cf8', fontSize: 20 }} />
+						<StorageIcon sx={{ color: 'primary.main', fontSize: 18 }} />
 					</Box>
-					<Typography variant="h5" sx={{ fontWeight: 800, color: '#f8fafc' }}>
+					<Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
 						{storages().length}
 					</Typography>
 				</Paper>
 
 				<Paper
 					sx={{
-						p: 2.5,
-						borderRadius: 2.5,
-						backgroundColor: 'rgba(255, 255, 255, 0.03)',
-						border: '1px solid rgba(255, 255, 255, 0.06)',
+						p: 2,
+						borderRadius: '10px',
+						bgcolor: 'background.paper',
+						border: '1px solid',
+						borderColor: 'divider',
 					}}
 				>
-					<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-						<Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
+					<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
 							Encrypted Size
 						</Typography>
-						<ShieldIcon sx={{ color: '#10b981', fontSize: 20 }} />
+						<ShieldIcon sx={{ color: 'success.main', fontSize: 18 }} />
 					</Box>
-					<Typography variant="h5" sx={{ fontWeight: 800, color: '#10b981' }}>
+					<Typography variant="h6" sx={{ fontWeight: 700, color: 'success.main' }}>
 						{convertSize(totalSize())}
 					</Typography>
 				</Paper>
 
 				<Paper
 					sx={{
-						p: 2.5,
-						borderRadius: 2.5,
-						backgroundColor: 'rgba(255, 255, 255, 0.03)',
-						border: '1px solid rgba(255, 255, 255, 0.06)',
+						p: 2,
+						borderRadius: '10px',
+						bgcolor: 'background.paper',
+						border: '1px solid',
+						borderColor: 'divider',
 					}}
 				>
-					<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-						<Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
+					<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
 							Files / Chunks
 						</Typography>
-						<SmartToyIcon sx={{ color: '#38bdf8', fontSize: 20 }} />
+						<SmartToyIcon sx={{ color: 'secondary.main', fontSize: 18 }} />
 					</Box>
-					<Typography variant="h5" sx={{ fontWeight: 800, color: '#38bdf8' }}>
-						{totalFiles()} <span style={{ 'font-size': '14px', color: '#94a3b8', 'font-weight': 500 }}>({totalChunks()} chunks)</span>
+					<Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
+						{totalFiles()} <span style={{ 'font-size': '12px', color: 'var(--text-secondary, #94a3b8)', 'font-weight': 400 }}>({totalChunks()} chunks)</span>
 					</Typography>
 				</Paper>
 
 				<Paper
 					sx={{
-						p: 2.5,
-						borderRadius: 2.5,
-						backgroundColor: 'rgba(255, 255, 255, 0.03)',
-						border: '1px solid rgba(255, 255, 255, 0.06)',
+						p: 2,
+						borderRadius: '10px',
+						bgcolor: 'background.paper',
+						border: '1px solid',
+						borderColor: 'divider',
 					}}
 				>
-					<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-						<Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
+					<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+						<Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
 							Encryption Standard
 						</Typography>
-						<ShieldIcon sx={{ color: '#f59e0b', fontSize: 20 }} />
+						<ShieldIcon sx={{ color: 'warning.main', fontSize: 18 }} />
 					</Box>
-					<Typography variant="h6" sx={{ fontWeight: 800, color: '#f59e0b', fontSize: '1.1rem' }}>
+					<Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'warning.main' }}>
 						AES-256-GCM
 					</Typography>
 				</Paper>
@@ -198,9 +204,10 @@ const Storages = () => {
 			{/* Storages Table Container */}
 			<Paper
 				sx={{
-					borderRadius: 3,
-					backgroundColor: '#0d1527',
-					border: '1px solid rgba(255, 255, 255, 0.08)',
+					borderRadius: '12px',
+					bgcolor: 'background.paper',
+					border: '1px solid',
+					borderColor: 'divider',
 					overflow: 'hidden',
 				}}
 			>
@@ -210,25 +217,30 @@ const Storages = () => {
 							when={storages().length > 0}
 							fallback={
 								<Box sx={{ p: 6, textAlign: 'center' }}>
-									<StorageIcon sx={{ fontSize: 48, color: '#475569', mb: 1.5 }} />
-									<Typography variant="h6" sx={{ color: '#f8fafc', fontWeight: 600 }}>
-										No Storage Vaults Registered Yet
+									<StorageIcon sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
+									<Typography variant="subtitle1" sx={{ color: 'text.primary', fontWeight: 600 }}>
+										{isAdmin() ? 'No Storage Vaults Registered Yet' : 'No Storage Vaults Available'}
 									</Typography>
-									<Typography variant="body2" sx={{ color: '#94a3b8', mb: 3, maxWidth: 420, mx: 'auto' }}>
-										Create a Telegram Channel, add your bot as an admin, and register your first storage vault to start uploading encrypted files.
+									<Typography variant="body2" sx={{ color: 'text.secondary', mb: 2.5, maxWidth: 420, mx: 'auto' }}>
+										{isAdmin()
+											? 'Create a Telegram Channel, add your bot as an admin, and register your first storage vault to start uploading encrypted files.'
+											: 'There are currently no storage vaults configured. Please contact your system administrator to assign or register a vault.'}
 									</Typography>
-									<Button
-										onClick={() => navigate('/storages/register')}
-										variant="contained"
-										sx={{ background: '#6366f1', textTransform: 'none', fontWeight: 600 }}
-									>
-										Register First Vault
-									</Button>
+									<Show when={isAdmin()}>
+										<Button
+											onClick={() => navigate('/storages/register')}
+											variant="contained"
+											size="small"
+											sx={{ textTransform: 'none', fontWeight: 600 }}
+										>
+											Register First Vault
+										</Button>
+									</Show>
 								</Box>
 							}
 						>
 							<TableHead>
-								<TableRow sx={{ '& th': { backgroundColor: '#131e36', color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(255,255,255,0.06)' } }}>
+								<TableRow sx={{ '& th': { bgcolor: 'action.hover', color: 'text.secondary', fontWeight: 600, borderColor: 'divider' } }}>
 									<TableCell>Storage Vault Name</TableCell>
 									<TableCell>Telegram Chat ID</TableCell>
 									<TableCell>Encrypted Size</TableCell>
@@ -243,27 +255,27 @@ const Storages = () => {
 										sx={{
 											cursor: 'pointer',
 											transition: 'all 0.15s ease',
-											'&:hover': { backgroundColor: 'rgba(99, 102, 241, 0.08)' },
-											'& td': { color: '#cbd5e1', borderColor: 'rgba(255,255,255,0.05)', py: 2 },
+											'&:hover': { bgcolor: 'action.hover' },
+											'& td': { color: 'text.primary', borderColor: 'divider', py: 1.5 },
 										}}
 									>
 										<TableCell
 											component="th"
 											scope="row"
 											onClick={() => navigate(`/storages/${storage.id}/files`)}
-											sx={{ fontWeight: 700, color: '#f8fafc !important' }}
+											sx={{ fontWeight: 600 }}
 										>
 											<Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
 												<Box
 													sx={{
-														width: 32,
-														height: 32,
-														borderRadius: 1.5,
-														backgroundColor: 'rgba(99, 102, 241, 0.15)',
+														width: 28,
+														height: 28,
+														borderRadius: '6px',
+														bgcolor: 'action.hover',
 														display: 'flex',
 														alignItems: 'center',
 														justifyContent: 'center',
-														color: '#818cf8',
+														color: 'primary.main',
 													}}
 												>
 													<StorageIcon fontSize="small" />
@@ -273,10 +285,10 @@ const Storages = () => {
 										</TableCell>
 										<TableCell onClick={() => navigate(`/storages/${storage.id}/files`)}>
 											<Chip
-												icon={<SendIcon sx={{ fontSize: '13px !important', color: '#38bdf8 !important' }} />}
+												icon={<SendIcon sx={{ fontSize: '12px !important', color: 'secondary.main !important' }} />}
 												label={String(storage.chat_id)}
 												size="small"
-												sx={{ backgroundColor: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', fontFamily: 'monospace', fontWeight: 600 }}
+												sx={{ bgcolor: 'action.hover', color: 'secondary.main', fontFamily: 'monospace', fontWeight: 600, height: '22px' }}
 											/>
 										</TableCell>
 										<TableCell onClick={() => navigate(`/storages/${storage.id}/files`)}>
@@ -287,10 +299,10 @@ const Storages = () => {
 										</TableCell>
 										<TableCell onClick={() => navigate(`/storages/${storage.id}/files`)}>
 											<Chip
-												icon={<ShieldIcon sx={{ fontSize: '13px !important', color: '#10b981 !important' }} />}
+												icon={<ShieldIcon sx={{ fontSize: '12px !important', color: 'success.main !important' }} />}
 												label="AES-256-GCM"
 												size="small"
-												sx={{ backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 700, fontSize: 11 }}
+												sx={{ bgcolor: 'action.hover', color: 'success.main', fontWeight: 600, fontSize: '0.72rem', height: '22px' }}
 											/>
 										</TableCell>
 										<TableCell align="right">
@@ -300,26 +312,26 @@ const Storages = () => {
 												startIcon={<FolderOpenIcon />}
 												onClick={() => navigate(`/storages/${storage.id}/files`)}
 												sx={{
-													color: '#818cf8',
-													borderColor: 'rgba(99, 102, 241, 0.3)',
 													textTransform: 'none',
-													fontSize: 12,
+													fontSize: '0.75rem',
 													fontWeight: 600,
-													mr: 1,
+													mr: isAdmin() ? 1 : 0,
 												}}
 											>
 												Browse
 											</Button>
-											<IconButton
-												size="small"
-												onClick={(e) => {
-													e.stopPropagation()
-													setSelectedStorageToDelete(storage)
-												}}
-												sx={{ color: '#ef4444', '&:hover': { backgroundColor: 'rgba(239, 68, 68, 0.1)' } }}
-											>
-												<DeleteOutlineIcon fontSize="small" />
-											</IconButton>
+											<Show when={isAdmin()}>
+												<IconButton
+													size="small"
+													onClick={(e) => {
+														e.stopPropagation()
+														setSelectedStorageToDelete(storage)
+													}}
+													sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
+												>
+													<DeleteOutlineIcon fontSize="small" />
+												</IconButton>
+											</Show>
 										</TableCell>
 									</TableRow>
 								))}
@@ -329,20 +341,22 @@ const Storages = () => {
 				</TableContainer>
 			</Paper>
 
-			<ActionConfirmDialog
-				action="Delete"
-				entity="storage vault"
-				actionDescription={`permanently delete vault "${selectedStorageToDelete()?.name}" and all its chunk metadata`}
-				isOpened={Boolean(selectedStorageToDelete())}
-				onConfirm={confirmDeleteStorage}
-				onCancel={() => setSelectedStorageToDelete(null)}
-			/>
+			<Show when={isAdmin()}>
+				<ActionConfirmDialog
+					action="Delete"
+					entity="storage vault"
+					actionDescription={`permanently delete vault "${selectedStorageToDelete()?.name}" and all its chunk metadata`}
+					isOpened={Boolean(selectedStorageToDelete())}
+					onConfirm={confirmDeleteStorage}
+					onCancel={() => setSelectedStorageToDelete(null)}
+				/>
 
-			<OnboardingVaultDialog
-				open={onboardingOpen()}
-				onClose={() => setOnboardingOpen(false)}
-				onCreated={() => fetchStorages()}
-			/>
+				<OnboardingVaultDialog
+					open={onboardingOpen()}
+					onClose={() => setOnboardingOpen(false)}
+					onCreated={() => fetchStorages()}
+				/>
+			</Show>
 		</Box>
 	)
 }

@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "lint": "tsc --noEmit || true",
-    "start": "node -e \"if(!require('fs').existsSync('dist/server.cjs')){require('child_process').execSync('npm run build',{stdio:'inherit'})}\" && node dist/server.cjs"
+    "start": "node dist/server.cjs"
   },
   "dependencies": {
     "@solidjs/router": "^0.9.1",

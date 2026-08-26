@@ -17,8 +17,10 @@ import { useNavigate } from '@solidjs/router'
 import API from '../../api'
 import { alertStore } from '../../components/AlertStack'
 import SetupGuideDialog from '../../components/SetupGuideDialog'
+import { checkAdmin } from '../../common/auth_guard'
 
 const StorageCreateForm = () => {
+	checkAdmin()
 	const [chatIdErr, setChatIdErr] = createSignal(null)
 	const [guideOpen, setGuideOpen] = createSignal(false)
 	const { addAlert } = alertStore
