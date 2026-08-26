@@ -106,14 +106,10 @@ const FSListItem = (props) => {
 		}
 	}
 
-	const handleMediaError = () => {
-		if (!blobMediaUrl() && (mediaKind() === 'video' || mediaKind() === 'audio')) {
-			// Auto-fallback to full decrypted buffer playback if native range stream encounters browser codec/network issue
-			loadBlobFallback()
-		} else {
-			setMediaLoading(false)
-			setMediaError(true)
-		}
+	const handleMediaError = (e) => {
+		console.warn('Native media streaming notice:', e)
+		setMediaLoading(false)
+		setMediaError(true)
 	}
 
 	const retryMediaStream = () => {
@@ -563,9 +559,11 @@ const FSListItem = (props) => {
 								src={mediaUrl()}
 								controls
 								playsinline
-								preload="metadata"
+								preload="auto"
 								crossOrigin="anonymous"
 								onCanPlay={() => setMediaLoading(false)}
+								onCanPlayThrough={() => setMediaLoading(false)}
+								onLoadedData={() => setMediaLoading(false)}
 								onPlaying={() => setMediaLoading(false)}
 								onLoadedMetadata={() => setMediaLoading(false)}
 								onError={handleMediaError}
@@ -592,8 +590,10 @@ const FSListItem = (props) => {
 							<audio
 								src={mediaUrl()}
 								controls
-								preload="metadata"
+								preload="auto"
 								onCanPlay={() => setMediaLoading(false)}
+								onCanPlayThrough={() => setMediaLoading(false)}
+								onLoadedData={() => setMediaLoading(false)}
 								onPlaying={() => setMediaLoading(false)}
 								onError={handleMediaError}
 								style={{ width: '100%' }}

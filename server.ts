@@ -68,6 +68,34 @@ interface StoredFile {
 // In-memory cache for derived storage encryption keys to eliminate CPU bottlenecks during streaming
 const storageKeysCache = new Map<string, Buffer[]>()
 
+// Cache of active winning key per storage ID for 0-latency AES-NI decryption
+const storageActiveKeyCache = new Map<string, Buffer>()
+
+// High-speed In-Memory LRU Decrypted Chunk Cache (up to 128 chunks ~ 512MB RAM)
+const decryptedChunksLruCache = new Map<string, Buffer>()
+const MAX_DECRYPTED_LRU_ENTRIES = 128
+
+function getCachedDecryptedChunk(storageId: string, chunk: EncryptedChunk, cipherBuffer: Buffer): Buffer | null {
+	const cacheKey = `${storageId}:${chunk.sha256 || chunk.index}`
+	const cached = decryptedChunksLruCache.get(cacheKey)
+	if (cached && cached.length > 0) {
+		// Refresh LRU position
+		decryptedChunksLruCache.delete(cacheKey)
+		decryptedChunksLruCache.set(cacheKey, cached)
+		return cached
+	}
+
+	const decrypted = decryptChunkBuffer(chunk, cipherBuffer, storageId)
+	if (decrypted && decrypted.length > 0) {
+		if (decryptedChunksLruCache.size >= MAX_DECRYPTED_LRU_ENTRIES) {
+			const oldestKey = decryptedChunksLruCache.keys().next().value
+			if (oldestKey) decryptedChunksLruCache.delete(oldestKey)
+		}
+		decryptedChunksLruCache.set(cacheKey, decrypted)
+	}
+	return decrypted
+}
+
 function getCandidateKeysForStorage(storageId: string): Buffer[] {
 	const cached = storageKeysCache.get(storageId)
 	if (cached && cached.length > 0) {
@@ -133,6 +161,8 @@ function getCandidateKeysForStorage(storageId: string): Buffer[] {
 
 // Derive a 256-bit symmetric key per storage (instantaneous O(1) cache lookup)
 function deriveStorageKey(storageId: string): Buffer {
+	const active = storageActiveKeyCache.get(storageId)
+	if (active && active.length === 32) return active
 	const keys = getCandidateKeysForStorage(storageId)
 	return keys[0]
 }
@@ -144,24 +174,22 @@ function deriveStorageKey(storageId: string): Buffer {
 function decryptChunkBuffer(chunk: EncryptedChunk, cipherBuffer: Buffer, storageId: string): Buffer | null {
 	const rawSize = chunk.rawSize || cipherBuffer.length
 	const candidateKeys = getCandidateKeysForStorage(storageId)
+	const activeKey = storageActiveKeyCache.get(storageId)
+
+	// Sort keys so the previously working active key is attempted first
+	const orderedKeys = activeKey ? [activeKey, ...candidateKeys.filter((k) => !k.equals(activeKey))] : candidateKeys
 
 	// 1. Authenticated AES-256-GCM Decryption
 	if (chunk.iv && chunk.authTag) {
 		const iv = Buffer.from(chunk.iv, 'hex')
 		const authTag = Buffer.from(chunk.authTag, 'hex')
-		for (const key of candidateKeys) {
+		for (const key of orderedKeys) {
 			try {
 				const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv)
 				decipher.setAuthTag(authTag)
 				const decrypted = Buffer.concat([decipher.update(cipherBuffer), decipher.final()])
 				if (decrypted && decrypted.length > 0) {
-					// Verify SHA-256 checksum if recorded
-					if (chunk.sha256) {
-						const actualHash = crypto.createHash('sha256').update(decrypted).digest('hex')
-						if (actualHash === chunk.sha256) {
-							return decrypted
-						}
-					}
+					storageActiveKeyCache.set(storageId, key)
 					return decrypted
 				}
 			} catch (_) {}
@@ -171,7 +199,7 @@ function decryptChunkBuffer(chunk: EncryptedChunk, cipherBuffer: Buffer, storage
 	// 2. Fallback stream decipher attempt
 	if (chunk.iv) {
 		const iv = Buffer.from(chunk.iv, 'hex')
-		for (const key of candidateKeys) {
+		for (const key of orderedKeys) {
 			try {
 				const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv)
 				const decrypted = decipher.update(cipherBuffer)
@@ -179,8 +207,11 @@ function decryptChunkBuffer(chunk: EncryptedChunk, cipherBuffer: Buffer, storage
 					if (chunk.sha256) {
 						const actualHash = crypto.createHash('sha256').update(decrypted).digest('hex')
 						if (actualHash === chunk.sha256) {
+							storageActiveKeyCache.set(storageId, key)
 							return decrypted
 						}
+					} else {
+						return decrypted
 					}
 				}
 			} catch (_) {}
@@ -613,8 +644,19 @@ const initStorageMaps = (sId: string) => {
 let isDatabaseInitialized = false
 let dbInitPromise: Promise<void> | null = null
 
+const chunkPathCache = new Map<string, string>()
+const cipherChunkRamCache = new Map<string, Buffer>()
+const MAX_CIPHER_RAM_ENTRIES = 128
+
 function saveChunkToDisk(storageId: string, chunkSha: string, buffer: Buffer) {
 	if (!chunkSha || !buffer || buffer.length === 0) return
+
+	const ramKey = `${storageId}:${chunkSha}`
+	if (cipherChunkRamCache.size >= MAX_CIPHER_RAM_ENTRIES) {
+		const oldest = cipherChunkRamCache.keys().next().value
+		if (oldest) cipherChunkRamCache.delete(oldest)
+	}
+	cipherChunkRamCache.set(ramKey, buffer)
 
 	const candidateDirs = [
 		path.join(CHUNKS_DIR, storageId),
@@ -634,7 +676,9 @@ function saveChunkToDisk(storageId: string, chunkSha: string, buffer: Buffer) {
 	for (const dir of candidateDirs) {
 		try {
 			if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-			fs.writeFileSync(path.join(dir, `${chunkSha}.bin`), buffer)
+			const fullPath = path.join(dir, `${chunkSha}.bin`)
+			fs.writeFileSync(fullPath, buffer)
+			chunkPathCache.set(ramKey, fullPath)
 		} catch (_) {}
 	}
 
@@ -654,11 +698,32 @@ function saveChunkToDisk(storageId: string, chunkSha: string, buffer: Buffer) {
 function loadChunkFromDisk(storageId: string, chunkSha: string): Buffer | null {
 	if (!chunkSha) return null
 
+	const ramKey = `${storageId}:${chunkSha}`
+	const ramBuf = cipherChunkRamCache.get(ramKey)
+	if (ramBuf && ramBuf.length > 0) return ramBuf
+
+	const cachedPath = chunkPathCache.get(ramKey)
+	if (cachedPath) {
+		try {
+			if (fs.existsSync(cachedPath)) {
+				const buf = fs.readFileSync(cachedPath)
+				if (buf && buf.length > 0) {
+					if (cipherChunkRamCache.size >= MAX_CIPHER_RAM_ENTRIES) {
+						const oldest = cipherChunkRamCache.keys().next().value
+						if (oldest) cipherChunkRamCache.delete(oldest)
+					}
+					cipherChunkRamCache.set(ramKey, buf)
+					return buf
+				}
+			}
+		} catch (_) {}
+	}
+
 	const searchPaths = [
 		path.join(CHUNKS_DIR, storageId, `${chunkSha}.bin`),
 		path.join(CHUNKS_DIR, `${chunkSha}.bin`),
 		path.join(process.cwd(), 'data', 'chunks', storageId, `${chunkSha}.bin`),
-		path.join(process.cwd(), 'data', 'chunks'),
+		path.join(process.cwd(), 'data', 'chunks', `${chunkSha}.bin`),
 		path.join('/app/applet/data', 'chunks', storageId, `${chunkSha}.bin`),
 		path.join('/app/applet/data', 'chunks', `${chunkSha}.bin`),
 		path.join('/data', 'chunks', storageId, `${chunkSha}.bin`),
@@ -673,7 +738,15 @@ function loadChunkFromDisk(storageId: string, chunkSha: string): Buffer | null {
 		try {
 			if (fs.existsSync(p)) {
 				const buf = fs.readFileSync(p)
-				if (buf && buf.length > 0) return buf
+				if (buf && buf.length > 0) {
+					chunkPathCache.set(ramKey, p)
+					if (cipherChunkRamCache.size >= MAX_CIPHER_RAM_ENTRIES) {
+						const oldest = cipherChunkRamCache.keys().next().value
+						if (oldest) cipherChunkRamCache.delete(oldest)
+					}
+					cipherChunkRamCache.set(ramKey, buf)
+					return buf
+				}
 			}
 		} catch (_) {}
 	}
@@ -697,7 +770,11 @@ function loadChunkFromDisk(storageId: string, chunkSha: string): Buffer | null {
 						const subCandidate = path.join(dir, item.name, `${chunkSha}.bin`)
 						if (fs.existsSync(subCandidate)) {
 							const buf = fs.readFileSync(subCandidate)
-							if (buf && buf.length > 0) return buf
+							if (buf && buf.length > 0) {
+								chunkPathCache.set(ramKey, subCandidate)
+								cipherChunkRamCache.set(ramKey, buf)
+								return buf
+							}
 						}
 					}
 				}
@@ -2226,7 +2303,7 @@ app.get(['/api/storages/:storage_id/files/media', '/api/storages/:storage_id/fil
 	}
 
 	const sortedChunks = [...(file.chunks || [])].sort((a, b) => a.index - b.index)
-	const SUB_BLOCK_SIZE = 64 * 1024
+	const SUB_BLOCK_SIZE = 512 * 1024 // 512KB for maximum throughput & low buffering
 
 	try {
 		let currentOffset = 0
@@ -2249,7 +2326,7 @@ app.get(['/api/storages/:storage_id/files/media', '/api/storages/:storage_id/fil
 				continue
 			}
 
-			const decrypted = decryptChunkBuffer(chunk, cipherBuffer, sId)
+			const decrypted = getCachedDecryptedChunk(sId, chunk, cipherBuffer)
 			if (!decrypted || decrypted.length === 0) {
 				console.warn(`[Stream Warning] Failed decrypting chunk ${chunk.index} for ${file.name}`)
 				continue
@@ -2259,17 +2336,18 @@ app.get(['/api/storages/:storage_id/files/media', '/api/storages/:storage_id/fil
 			const sliceEnd = Math.min(decrypted.length, end - chunkStart + 1)
 			if (sliceStart < sliceEnd) {
 				const slice = decrypted.subarray(sliceStart, sliceEnd)
-				// Stream in 64KB sub-blocks to prevent backpressure stalls
-				for (let offset = 0; offset < slice.length; offset += SUB_BLOCK_SIZE) {
-					if (closed || res.writableEnded) break
-					const block = slice.subarray(offset, Math.min(offset + SUB_BLOCK_SIZE, slice.length))
-					const ok = await writeSafe(block)
+				if (slice.length <= SUB_BLOCK_SIZE) {
+					const ok = await writeSafe(slice)
 					if (!ok) break
+				} else {
+					for (let offset = 0; offset < slice.length; offset += SUB_BLOCK_SIZE) {
+						if (closed || res.writableEnded) break
+						const block = slice.subarray(offset, Math.min(offset + SUB_BLOCK_SIZE, slice.length))
+						const ok = await writeSafe(block)
+						if (!ok) break
+					}
 				}
 			}
-
-			// Non-blocking event loop yield for smooth seeking & low latency
-			await new Promise((resolve) => setImmediate(resolve))
 		}
 
 		if (!res.writableEnded && !closed) {
@@ -2366,7 +2444,7 @@ app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/
 
 		const sorted = [...(file.chunks || [])].sort((a, b) => a.index - b.index)
 		let totalBytesWritten = 0
-		const SUB_BLOCK_SIZE = 64 * 1024 // 64KB sub-blocks to prevent memory bloat
+		const SUB_BLOCK_SIZE = 512 * 1024 // 512KB for maximum throughput & low buffering
 
 		if (sorted.length > 0) {
 			for (const chunk of sorted) {
@@ -2376,31 +2454,37 @@ app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/
 				const cipherBuf = await loadOrFetchChunk(sId, chunk)
 
 				if (cipherBuf && cipherBuf.length > 0) {
-					const decrypted = decryptChunkBuffer(chunk, cipherBuf, sId)
+					const decrypted = getCachedDecryptedChunk(sId, chunk, cipherBuf)
 					if (decrypted && decrypted.length > 0) {
-						// Stream decrypted slice in sub-blocks
-						for (let offset = 0; offset < decrypted.length; offset += SUB_BLOCK_SIZE) {
-							if (clientClosed) break
-							const slice = decrypted.subarray(offset, Math.min(offset + SUB_BLOCK_SIZE, decrypted.length))
-							const ok = await writeSafe(slice)
+						if (decrypted.length <= SUB_BLOCK_SIZE) {
+							const ok = await writeSafe(decrypted)
 							if (!ok) break
-							totalBytesWritten += slice.length
+							totalBytesWritten += decrypted.length
+						} else {
+							// Stream decrypted slice in sub-blocks
+							for (let offset = 0; offset < decrypted.length; offset += SUB_BLOCK_SIZE) {
+								if (clientClosed) break
+								const slice = decrypted.subarray(offset, Math.min(offset + SUB_BLOCK_SIZE, decrypted.length))
+								const ok = await writeSafe(slice)
+								if (!ok) break
+								totalBytesWritten += slice.length
+							}
 						}
 					}
 				} else {
-					// Fallback for metadata-only chunks: write deterministic 64KB blocks without allocating multi-MB buffers
+					// Fallback for metadata-only chunks: write deterministic blocks
 					const fallbackTarget = Math.min(expectedChunkSize, Math.max(0, expectedTotalSize - totalBytesWritten))
 					if (fallbackTarget > 0) {
-						const seedBuf = Buffer.alloc(SUB_BLOCK_SIZE)
+						const seedBuf = Buffer.alloc(Math.min(SUB_BLOCK_SIZE, fallbackTarget))
 						const hash = crypto.createHash('sha256').update(`${sId}_${chunk.index}_${chunk.sha256 || 'chunk'}`).digest()
-						for (let i = 0; i < SUB_BLOCK_SIZE; i++) {
+						for (let i = 0; i < seedBuf.length; i++) {
 							seedBuf[i] = hash[i % hash.length] ^ (i & 0xff)
 						}
 
 						let writtenForChunk = 0
 						while (writtenForChunk < fallbackTarget && !clientClosed) {
-							const toWrite = Math.min(SUB_BLOCK_SIZE, fallbackTarget - writtenForChunk)
-							const slice = toWrite === SUB_BLOCK_SIZE ? seedBuf : seedBuf.subarray(0, toWrite)
+							const toWrite = Math.min(seedBuf.length, fallbackTarget - writtenForChunk)
+							const slice = toWrite === seedBuf.length ? seedBuf : seedBuf.subarray(0, toWrite)
 							const ok = await writeSafe(slice)
 							if (!ok) break
 							writtenForChunk += toWrite
@@ -2408,9 +2492,6 @@ app.get(['/api/storages/:storage_id/files/download', '/api/storages/:storage_id/
 						}
 					}
 				}
-
-				// Yield to event loop between chunks
-				await new Promise((resolve) => setImmediate(resolve))
 			}
 		}
 
